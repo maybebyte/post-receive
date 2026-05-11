@@ -1,0 +1,716 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use File::Basename qw(dirname);
+use File::Path qw(make_path);
+use File::Spec;
+use File::Spec::Functions qw(catdir catfile rootdir);
+use Test::More;
+use lib File::Spec->catdir( dirname( File::Spec->rel2abs(__FILE__) ), 'lib' );
+
+use PostReceive::TestHarness;
+
+sub harness_diag {
+	my ($harness) = @_;
+
+	return join(
+		"\n",
+		'workspace_dir: ' . $harness->workspace_dir,
+		'home_dir: ' . $harness->home_dir,
+		'webroot_dir: ' . $harness->webroot_dir,
+		'fake_command_dir: ' . $harness->fake_command_dir,
+		'repo_fixture_root: ' . $harness->repo_fixture_root,
+		'PATH: ' . $harness->path,
+	);
+}
+
+sub setup_or_return {
+	my ( $label, $code, $harness ) = @_;
+
+	my $value = eval { $code->() };
+	if ( !$@ ) {
+		pass($label);
+		return $value;
+	}
+
+	fail($label);
+	diag($@);
+	diag( harness_diag($harness) );
+	return;
+}
+
+sub ok_with_diag {
+	my ( $bool, $label, $diag ) = @_;
+	ok( $bool, $label ) or diag($diag);
+	return $bool;
+}
+
+sub is_with_diag {
+	my ( $got, $expected, $label, $diag ) = @_;
+	is( $got, $expected, $label ) or diag($diag);
+	return;
+}
+
+sub like_with_diag {
+	my ( $got, $pattern, $label, $diag ) = @_;
+	like( $got, $pattern, $label ) or diag($diag);
+	return;
+}
+
+sub unlike_with_diag {
+	my ( $got, $pattern, $label, $diag ) = @_;
+	unlike( $got, $pattern, $label ) or diag($diag);
+	return;
+}
+
+sub executable_on_path {
+	my ( $path, $name ) = @_;
+
+	for my $dir ( split /:/, $path // q{} ) {
+		next unless defined $dir && length $dir;
+		my $candidate = File::Spec->catfile( $dir, $name );
+		return $candidate if -f $candidate && -x $candidate;
+	}
+
+	return;
+}
+
+sub executable_in_dir {
+	my ( $dir, $name ) = @_;
+
+	my $candidate = File::Spec->catfile( $dir, $name );
+	return $candidate if -f $candidate && -x $candidate;
+	return;
+}
+
+sub parse_trace {
+	my ($trace_text) = @_;
+
+	my %trace = ( argv => [] );
+	for my $line ( split /\n/, $trace_text ) {
+		if ( $line =~ /^argv\[(\d+)\]=(.*)\z/ ) {
+			$trace{argv}->[$1] = $2;
+			next;
+		}
+		if ( $line =~ /^([A-Za-z0-9_.-]+)=(.*)\z/ ) {
+			$trace{$1} = $2;
+		}
+	}
+
+	return \%trace;
+}
+
+sub perl_single_quote {
+	my ($text) = @_;
+
+	$text =~ s{\\}{\\\\}g;
+	$text =~ s{'}{\\'}g;
+
+	return "'$text'";
+}
+
+sub write_file {
+	my (%args) = @_;
+
+	my $path = $args{path} // die "write_file requires a path\n";
+	my $content = defined $args{content} ? $args{content} : q{};
+
+	make_path( dirname($path) );
+	open my $fh, '>', $path
+		or die "Could not open $path for writing: $!\n";
+	if ( $args{binary} ) {
+		binmode $fh or die "Could not enable binmode for $path: $!\n";
+	}
+	print {$fh} $content
+		or die "Could not write to $path: $!\n";
+	close $fh
+		or die "Could not close $path: $!\n";
+
+	return $path;
+}
+
+sub install_fake_website_helpers {
+	my ($harness) = @_;
+
+	my $bindir = catdir( $harness->home_dir, qw(.local bin) );
+	make_path($bindir);
+
+	my $ssg_path = catfile( $bindir, 'ssg6' );
+	my $rssg_path = catfile( $bindir, 'rssg' );
+	my $ssg_trace_path = catfile( $harness->workspace_dir, 'fake-ssg6.trace' );
+	my $rssg_trace_path = catfile( $harness->workspace_dir, 'fake-rssg.trace' );
+	my $ssg_trace_literal = perl_single_quote($ssg_trace_path);
+	my $rssg_trace_literal = perl_single_quote($rssg_trace_path);
+
+	my $ssg_script = <<'FAKE_SSG';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Cwd qw(getcwd);
+use File::Path qw(make_path);
+
+sub write_text {
+	my ( $path, $content ) = @_;
+	open my $fh, '>', $path
+		or die "Could not open $path for writing: $!\n";
+	print {$fh} $content
+		or die "Could not write to $path: $!\n";
+	close $fh
+		or die "Could not close $path: $!\n";
+}
+
+sub write_binary {
+	my ( $path, $content ) = @_;
+	open my $fh, '>', $path
+		or die "Could not open $path for writing: $!\n";
+	binmode $fh or die "Could not enable binmode for $path: $!\n";
+	print {$fh} $content
+		or die "Could not write to $path: $!\n";
+	close $fh
+		or die "Could not close $path: $!\n";
+}
+
+sub write_exact_text {
+	my ( $path, $prefix, $size, $fill ) = @_;
+	my $remaining = $size - length $prefix;
+	die "Prefix for $path exceeds requested size of $size bytes\n"
+		if $remaining < 0;
+	write_text( $path, $prefix . ( $fill x $remaining ) );
+}
+
+my ( $clone_dir, $webroot, $website_name, $domain_with_schema ) = @ARGV;
+my $trace_path = __TRACE_PATH__;
+
+open my $trace_fh, '>', $trace_path
+	or die "Could not open $trace_path for writing: $!\n";
+print {$trace_fh} "helper=ssg6\n";
+print {$trace_fh} "self=$0\n";
+print {$trace_fh} "cwd=", getcwd(), "\n";
+for my $index ( 0 .. $#ARGV ) {
+	print {$trace_fh} "argv[$index]=", $ARGV[$index], "\n";
+}
+print {$trace_fh} "index_exists=", ( -f "$clone_dir/index.md" ? 1 : 0 ), "\n";
+
+make_path( $webroot, "$webroot/src", "$webroot/stagit" );
+
+write_exact_text(
+	"$webroot/index.html",
+	"<!doctype html>\n<title>$website_name</title>\n<p>$domain_with_schema</p>\n",
+	1501,
+	'I',
+);
+write_exact_text(
+	"$webroot/about.txt",
+	"About $website_name at $domain_with_schema\n",
+	1501,
+	'A',
+);
+write_text( "$webroot/.files", "generated by fake ssg6\n" );
+print {$trace_fh} "created_dot_files=1\n";
+write_exact_text(
+	"$webroot/src/src.html",
+	"<!doctype html>\n<title>src page</title>\n<p>$clone_dir</p>\n",
+	1501,
+	'S',
+);
+write_exact_text(
+	"$webroot/src/other.html",
+	"<!doctype html>\n<title>other page</title>\n<p>$clone_dir</p>\n",
+	1501,
+	'O',
+);
+write_exact_text(
+	"$webroot/stagit/style.css",
+	"/* fake ssg6 stagit asset for $website_name */\n",
+	1501,
+	'C',
+);
+write_binary( "$webroot/stagit/logo.png", "\x89PNG\x0D\x0A\x1A\x0Afake-website-logo\n" );
+write_binary( "$webroot/stagit/favicon.png", "\x89PNG\x0D\x0A\x1A\x0Afake-website-favicon\n" );
+
+close $trace_fh
+	or die "Could not close $trace_path: $!\n";
+FAKE_SSG
+	$ssg_script =~ s/__TRACE_PATH__/$ssg_trace_literal/;
+
+	my $rssg_script = <<'FAKE_RSSG';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Cwd qw(getcwd);
+
+my ( $index_path, $website_title ) = @ARGV;
+my $trace_path = __TRACE_PATH__;
+
+open my $trace_fh, '>', $trace_path
+	or die "Could not open $trace_path for writing: $!\n";
+print {$trace_fh} "helper=rssg\n";
+print {$trace_fh} "self=$0\n";
+print {$trace_fh} "cwd=", getcwd(), "\n";
+for my $index ( 0 .. $#ARGV ) {
+	print {$trace_fh} "argv[$index]=", $ARGV[$index], "\n";
+}
+print {$trace_fh} "index_exists=", ( -f $index_path ? 1 : 0 ), "\n";
+close $trace_fh
+	or die "Could not close $trace_path: $!\n";
+
+my $xml = qq{<?xml version="1.0"?>\n<rss><channel><title>$website_title</title><item>$index_path</item><description>};
+$xml .= 'R' x 1700;
+$xml .= qq{</description></item></channel></rss>\n};
+print $xml
+	or die "Could not write RSS XML to STDOUT: $!\n";
+FAKE_RSSG
+	$rssg_script =~ s/__TRACE_PATH__/$rssg_trace_literal/;
+
+	write_file(
+		path    => $ssg_path,
+		content => $ssg_script,
+	);
+	write_file(
+		path    => $rssg_path,
+		content => $rssg_script,
+	);
+	chmod 0700, $ssg_path
+		or die "Could not chmod 0700 $ssg_path: $!\n";
+	chmod 0700, $rssg_path
+		or die "Could not chmod 0700 $rssg_path: $!\n";
+
+	return {
+		bindir          => $bindir,
+		ssg_path        => $ssg_path,
+		rssg_path       => $rssg_path,
+		ssg_trace_path  => $ssg_trace_path,
+		rssg_trace_path => $rssg_trace_path,
+	};
+}
+
+sub run_diag_with_helper_traces {
+	my ( $harness, $result, $helpers ) = @_;
+
+	my @lines = ( $harness->describe_run($result) );
+	for my $entry (
+		[ 'fake_ssg6_path',       $helpers->{ssg_path},       0 ],
+		[ 'fake_ssg6_trace_path', $helpers->{ssg_trace_path}, 1 ],
+		[ 'fake_rssg_path',       $helpers->{rssg_path},      0 ],
+		[ 'fake_rssg_trace_path', $helpers->{rssg_trace_path}, 1 ],
+	) {
+		my ( $label, $path, $include_contents ) = @{$entry};
+		push @lines, "$label: $path";
+		next unless $include_contents;
+		if ( -e $path ) {
+			push @lines, "$label contents:", $harness->read_file($path);
+		}
+		else {
+			push @lines, "$label contents:", '(missing)';
+		}
+	}
+
+	return join "\n", @lines;
+}
+
+subtest 'website_md branch uses isolated helpers and preserves shared publishing tail' => sub {
+	my $harness = PostReceive::TestHarness->new;
+	my $prereq_diag = join(
+		"\n",
+		'Install the missing prerequisite on PATH before running this website_md characterization test.',
+		'The test expects real git, fake stagit on the harness PATH, and fake ssg6/rssg at the isolated HOME absolute paths.',
+		harness_diag($harness),
+	);
+
+	my $helpers = setup_or_return(
+		'install fake website helpers',
+		sub { install_fake_website_helpers($harness) },
+		$harness,
+	);
+	return unless $helpers;
+
+	my $fake_stagit = setup_or_return(
+		'install fake stagit',
+		sub { $harness->install_fake_stagit },
+		$harness,
+	);
+	return unless $fake_stagit;
+
+	like_with_diag(
+		$harness->path,
+		qr/^\Q@{[ $harness->fake_command_dir ]}\E(?::|\z)/,
+		'fake command directory is prepended to PATH',
+		$prereq_diag,
+	);
+
+	is_with_diag(
+		executable_on_path( $harness->path, 'stagit' ),
+		$fake_stagit->{fake_stagit_path},
+		'fake stagit resolves first on the harness PATH',
+		$prereq_diag,
+	);
+
+	my $real_git = executable_on_path( $harness->path, 'git' );
+	ok_with_diag( defined $real_git, 'real git executable available on harness PATH', $prereq_diag );
+	return unless defined $real_git;
+
+	unlike_with_diag(
+		$real_git,
+		qr/^\Q@{[ $harness->fake_command_dir ]}\E(?:\/|\z)/,
+		'real git resolves outside the fake command directory',
+		$prereq_diag,
+	);
+
+	is_with_diag(
+		executable_in_dir( $helpers->{bindir}, 'ssg6' ),
+		$helpers->{ssg_path},
+		'fake ssg6 resolves at the isolated HOME absolute path',
+		$prereq_diag,
+	);
+	is_with_diag(
+		executable_in_dir( $helpers->{bindir}, 'rssg' ),
+		$helpers->{rssg_path},
+		'fake rssg resolves at the isolated HOME absolute path',
+		$prereq_diag,
+	);
+
+	my $repo = setup_or_return(
+		'create website_md bare repository fixture',
+		sub {
+			$harness->create_bare_repo(
+				repo_name      => 'website_md.git',
+				file_rel       => 'index.md',
+				file_content   => "# Website fixture\n\nThis is a deterministic website fixture.\n",
+				commit_message => 'Initial website fixture commit',
+			);
+		},
+		$harness,
+	);
+	return unless $repo;
+
+	my $production_webroot = catdir( rootdir(), qw(var www htdocs www.anthes.is) );
+	my $real_helper_bin = catdir( ( $ENV{HOME} // q{} ), qw(.local bin) );
+	my $expected_bindir = catdir( $harness->home_dir, qw(.local bin) );
+	my $website_title = 'My Unix blog: scripts, software, /etc - anthesis';
+	my $domain_with_schema = 'https://www.anthes.is';
+	my $website_name = 'anthesis';
+	my $stagit_dir = catdir( $harness->webroot_dir, qw(src website_md) );
+	my $stagit_git_dir = catdir( $stagit_dir, '.git' );
+	my $head_path = catfile( $stagit_git_dir, 'HEAD' );
+	my $info_refs_path = catfile( $stagit_git_dir, qw(info refs) );
+	my $root_index_path = catfile( $harness->webroot_dir, 'index.html' );
+	my $root_index_gz_path = catfile( $harness->webroot_dir, 'index.html.gz' );
+	my $about_path = catfile( $harness->webroot_dir, 'about.txt' );
+	my $about_gz_path = catfile( $harness->webroot_dir, 'about.txt.gz' );
+	my $dot_files_path = catfile( $harness->webroot_dir, '.files' );
+	my $rss_path = catfile( $harness->webroot_dir, 'rss.xml' );
+	my $rss_gz_path = catfile( $harness->webroot_dir, 'rss.xml.gz' );
+	my $root_src_path = catfile( $harness->webroot_dir, qw(src src.html) );
+	my $root_src_gz_path = catfile( $harness->webroot_dir, qw(src src.html.gz) );
+	my $root_other_path = catfile( $harness->webroot_dir, qw(src other.html) );
+	my $root_other_gz_path = catfile( $harness->webroot_dir, qw(src other.html.gz) );
+	my $root_style_css_path = catfile( $harness->webroot_dir, qw(stagit style.css) );
+	my $root_logo_path = catfile( $harness->webroot_dir, qw(stagit logo.png) );
+	my $root_favicon_path = catfile( $harness->webroot_dir, qw(stagit favicon.png) );
+	my $copied_style_css_path = catfile( $stagit_dir, 'style.css' );
+	my $copied_logo_path = catfile( $stagit_dir, 'logo.png' );
+	my $copied_favicon_path = catfile( $stagit_dir, 'favicon.png' );
+	my $log_path = catfile( $stagit_dir, 'log.html' );
+	my $index_path = catfile( $stagit_dir, 'index.html' );
+	my $trace_path = $harness->fake_stagit_trace_path;
+	my $stale_root_path = catfile( $harness->webroot_dir, 'stale-root.txt' );
+	my $stale_root_nested_path = catfile( $harness->webroot_dir, qw(stale-dir nested.txt) );
+	my $stale_root_stagit_path = catfile( $harness->webroot_dir, qw(stagit stale-before-run.txt) );
+	my $preserved_src_path = catfile( $harness->webroot_dir, qw(src keep-existing.txt) );
+	my $preserved_other_repo_path = catfile( $harness->webroot_dir, qw(src existing-repo keep.txt) );
+	my $stale_website_repo_path = catfile( $stagit_dir, 'stale-before-run.txt' );
+
+	setup_or_return(
+		'seed stale and preserved webroot fixtures',
+		sub {
+			write_file(
+				path    => $stale_root_path,
+				content => "remove this stale root file\n",
+			);
+			write_file(
+				path    => $stale_root_nested_path,
+				content => "remove this stale nested root file\n",
+			);
+			write_file(
+				path    => $stale_root_stagit_path,
+				content => "stale root stagit asset should be removed\n",
+			);
+			write_file(
+				path    => $preserved_src_path,
+				content => "keep this src fixture outside src/website_md\n",
+			);
+			write_file(
+				path    => $preserved_other_repo_path,
+				content => "keep this nested src fixture outside src/website_md\n",
+			);
+			write_file(
+				path    => $stale_website_repo_path,
+				content => "stale website_md output should be cleared before shared publishing\n",
+			);
+			return 1;
+		},
+		$harness,
+	) or return;
+
+	my $result = $harness->run_post_receive( argv => ['-v'] );
+	my $run_diag = run_diag_with_helper_traces( $harness, $result, $helpers );
+
+	is_with_diag( $result->{command}->[0], $harness->hook_path, 'hook ran via executable child path', $run_diag );
+	is_with_diag( $result->{status}, 0, 'hook child status is 0', $run_diag );
+	is_with_diag( $result->{exit_code}, 0, 'hook exit code is 0', $run_diag );
+	is_with_diag( $result->{signal}, 0, 'hook terminated without signal', $run_diag );
+
+	for my $fixture_check (
+		[ $harness->workspace_dir, 'workspace directory' ],
+		[ $harness->home_dir, 'isolated HOME directory' ],
+		[ $harness->webroot_dir, 'temp webroot directory' ],
+		[ $helpers->{bindir}, 'isolated helper bin directory' ],
+		[ $helpers->{ssg_path}, 'fake ssg6 executable' ],
+		[ $helpers->{rssg_path}, 'fake rssg executable' ],
+		[ $repo->{bare_repo_dir}, 'bare repository fixture' ],
+		[ $repo->{work_clone_dir}, 'work clone fixture' ],
+		[ $stagit_dir, 'shared stagit output directory' ],
+	) {
+		my ( $path, $label ) = @{$fixture_check};
+		like_with_diag(
+			$path,
+			qr/^\Q@{[ $harness->workspace_dir ]}\E(?:\/|\z)/,
+			"$label stays under the temp workspace",
+			$run_diag,
+		);
+		unlike_with_diag(
+			$path,
+			qr/^\Q$production_webroot\E(?:\/|\z)/,
+			"$label does not use the production webroot",
+			$run_diag,
+		);
+	}
+
+	isnt( $harness->home_dir, ( $ENV{HOME} // q{} ), 'isolated HOME differs from the caller HOME' );
+	is_with_diag( $expected_bindir, $helpers->{bindir}, 'expected isolated helper bindir matches the installed helper location', $run_diag );
+	unlike_with_diag(
+		$expected_bindir,
+		qr/^\Q$real_helper_bin\E(?:\/|\z)/,
+		'isolated helper bin does not point into the caller home helper-bin path',
+		$run_diag,
+	);
+
+	ok_with_diag( !-e $stale_root_path, 'hook removed stale root-level webroot file', $run_diag );
+	ok_with_diag( !-e $stale_root_nested_path, 'hook removed stale nested root-level webroot file', $run_diag );
+	ok_with_diag( !-e $stale_root_stagit_path, 'hook removed stale root-level stagit asset before the fake website helper recreated shared assets', $run_diag );
+	ok_with_diag( -f $preserved_src_path, 'hook preserved existing src fixture outside src/website_md', $run_diag );
+	ok_with_diag( -f $preserved_other_repo_path, 'hook preserved nested src fixture outside src/website_md', $run_diag );
+	ok_with_diag( !-e $stale_website_repo_path, 'hook cleared stale src/website_md output before shared publishing', $run_diag );
+
+	ok_with_diag( -f $helpers->{ssg_trace_path}, 'fake ssg6 trace was recorded', $run_diag );
+	ok_with_diag( -f $helpers->{rssg_trace_path}, 'fake rssg trace was recorded', $run_diag );
+	ok_with_diag( -f $trace_path, 'fake stagit trace was recorded', $run_diag );
+
+	ok_with_diag( -d $stagit_dir, 'shared stagit output directory exists', $run_diag );
+	ok_with_diag( -d $stagit_git_dir, 'hook cloned the bare repository into src/website_md/.git', $run_diag );
+	ok_with_diag( -f $head_path, 'cloned bare repository preserved .git/HEAD', $run_diag );
+	ok_with_diag( -f $info_refs_path, 'git update-server-info populated .git/info/refs', $run_diag );
+
+	for my $entry (
+		[ $root_index_path, $root_index_gz_path, 'generated root index.html' ],
+		[ $about_path,      $about_gz_path,      'generated root about.txt' ],
+		[ $rss_path,        $rss_gz_path,        'generated rss.xml' ],
+		[ $root_src_path,   $root_src_gz_path,   'generated src/src.html' ],
+	) {
+		my ( $path, $gz_path, $label ) = @{$entry};
+		ok_with_diag( -f $path, "$label exists", $run_diag );
+		ok_with_diag( ( -e $path ? -s $path : 0 ) > 1400, "$label exceeds the gzip threshold", $run_diag );
+		ok_with_diag( -f $gz_path, "$label was gzipped", $run_diag );
+	}
+
+	ok_with_diag( -f $root_other_path, 'generated src/other.html exists', $run_diag );
+	ok_with_diag( ( -e $root_other_path ? -s $root_other_path : 0 ) > 1400, 'generated src/other.html exceeds the gzip threshold', $run_diag );
+	ok_with_diag( !-e $root_other_gz_path, 'generated src/other.html was not gzipped because the website no-src rule only compresses src/src.html inside src/', $run_diag );
+	ok_with_diag( !-e $dot_files_path, 'hook deleted the generated .files marker after website generation', $run_diag );
+
+	ok_with_diag( -f $root_style_css_path, 'fake ssg6 recreated root stagit/style.css after website cleanup', $run_diag );
+	ok_with_diag( -f $root_logo_path, 'fake ssg6 recreated root stagit/logo.png after website cleanup', $run_diag );
+	ok_with_diag( -f $root_favicon_path, 'fake ssg6 recreated root stagit/favicon.png after website cleanup', $run_diag );
+	ok_with_diag( -f $copied_style_css_path, 'shared publishing copied stagit/style.css into src/website_md', $run_diag );
+	ok_with_diag( -f $copied_logo_path, 'shared publishing copied stagit/logo.png into src/website_md', $run_diag );
+	ok_with_diag( -f $copied_favicon_path, 'shared publishing copied stagit/favicon.png into src/website_md', $run_diag );
+	ok_with_diag( -f $log_path, 'fake stagit generated log.html', $run_diag );
+	ok_with_diag( -f $index_path, 'hook copied log.html to index.html', $run_diag );
+
+	SKIP: {
+		skip 'website helper traces missing', 18 unless -f $helpers->{ssg_trace_path} && -f $helpers->{rssg_trace_path};
+		my $ssg_trace = parse_trace( $harness->read_file( $helpers->{ssg_trace_path} ) );
+		my $rssg_trace = parse_trace( $harness->read_file( $helpers->{rssg_trace_path} ) );
+
+		is_with_diag( $ssg_trace->{helper}, 'ssg6', 'fake ssg6 trace identified the helper name', $run_diag );
+		is_with_diag( $ssg_trace->{self}, $helpers->{ssg_path}, 'fake ssg6 trace recorded the absolute helper path', $run_diag );
+		is_with_diag( $ssg_trace->{cwd}, $repo->{bare_repo_dir}, 'fake ssg6 trace recorded the bare repository as cwd', $run_diag );
+		is_deeply(
+			$ssg_trace->{argv},
+			[ $rssg_trace->{argv}->[0] =~ s{/index\.md\z}{}r, $harness->webroot_dir, $website_name, $domain_with_schema ],
+			'fake ssg6 trace recorded clone dir, temp webroot, website name, and public domain argv',
+		) or diag($run_diag);
+		is_with_diag( $ssg_trace->{index_exists}, 1, 'fake ssg6 observed index.md inside the temporary cloned website source', $run_diag );
+		is_with_diag( $ssg_trace->{created_dot_files}, 1, 'fake ssg6 trace recorded creation of the .files marker', $run_diag );
+
+		is_with_diag( $rssg_trace->{helper}, 'rssg', 'fake rssg trace identified the helper name', $run_diag );
+		is_with_diag( $rssg_trace->{self}, $helpers->{rssg_path}, 'fake rssg trace recorded the absolute helper path', $run_diag );
+		is_with_diag( $rssg_trace->{cwd}, $repo->{bare_repo_dir}, 'fake rssg trace recorded the bare repository as cwd', $run_diag );
+		ok_with_diag( defined $rssg_trace->{argv}->[0], 'fake rssg trace recorded the index path argv entry', $run_diag );
+		ok_with_diag( defined $rssg_trace->{argv}->[1], 'fake rssg trace recorded the website title argv entry', $run_diag );
+		is_with_diag(
+			$rssg_trace->{argv}->[0],
+			catfile( $ssg_trace->{argv}->[0], 'index.md' ),
+			'fake rssg trace recorded the cloned index.md path derived from the ssg6 clone dir',
+			$run_diag,
+		);
+		is_with_diag( $rssg_trace->{argv}->[1], $website_title, 'fake rssg trace recorded the expected website title', $run_diag );
+		is_with_diag( $rssg_trace->{index_exists}, 1, 'fake rssg observed the cloned index.md path on disk', $run_diag );
+		unlike_with_diag(
+			$ssg_trace->{argv}->[1],
+			qr/^\Q$production_webroot\E(?:\/|\z)/,
+			'fake ssg6 webroot argv does not point at the production webroot',
+			$run_diag,
+		);
+		unlike_with_diag(
+			$ssg_trace->{self},
+			qr/^\Q$real_helper_bin\E(?:\/|\z)/,
+			'fake ssg6 self path does not point into the caller home helper bin',
+			$run_diag,
+		);
+		unlike_with_diag(
+			$rssg_trace->{self},
+			qr/^\Q$real_helper_bin\E(?:\/|\z)/,
+			'fake rssg self path does not point into the caller home helper bin',
+			$run_diag,
+		);
+	}
+
+	SKIP: {
+		skip 'fake stagit trace missing', 2 unless -f $trace_path;
+		my $trace = parse_trace( $harness->read_file($trace_path) );
+		is_with_diag( $trace->{cwd}, $stagit_dir, 'fake stagit recorded the shared publishing output directory as cwd', $run_diag );
+		is_deeply( $trace->{argv}, [ '--', $repo->{bare_repo_dir} ], 'fake stagit recorded the expected argv for the shared publishing tail' )
+			or diag($run_diag);
+	}
+
+	SKIP: {
+		skip 'generated website files missing', 5 unless -f $root_index_path && -f $about_path && -f $rss_path;
+		my $root_index = $harness->read_file($root_index_path);
+		my $about = $harness->read_file($about_path);
+		my $rss = $harness->read_file($rss_path);
+		like_with_diag( $root_index, qr/\Q$domain_with_schema\E/, 'generated root index.html records the public domain from fake ssg6', $run_diag );
+		like_with_diag( $about, qr/About \Q$website_name\E at \Q$domain_with_schema\E/, 'generated root about.txt records the fake website metadata', $run_diag );
+		like_with_diag( $rss, qr/\Q$website_title\E/, 'generated rss.xml records the expected website title', $run_diag );
+		like_with_diag( $rss, qr/\Qindex.md\E/, 'generated rss.xml records the cloned index.md path', $run_diag );
+		ok_with_diag( -f $rss_gz_path, 'generated rss.xml kept its gzip sidecar alongside the deterministic feed', $run_diag );
+	}
+
+	SKIP: {
+		skip 'copied shared assets missing', 3 unless -f $root_style_css_path && -f $copied_style_css_path && -f $root_logo_path && -f $copied_logo_path && -f $root_favicon_path && -f $copied_favicon_path;
+		is_with_diag(
+			$harness->read_file($copied_style_css_path),
+			$harness->read_file($root_style_css_path),
+			'shared publishing copied style.css from the website root stagit assets',
+			$run_diag,
+		);
+		is_with_diag(
+			$harness->read_file($copied_logo_path),
+			$harness->read_file($root_logo_path),
+			'shared publishing copied logo.png from the website root stagit assets',
+			$run_diag,
+		);
+		is_with_diag(
+			$harness->read_file($copied_favicon_path),
+			$harness->read_file($root_favicon_path),
+			'shared publishing copied favicon.png from the website root stagit assets',
+			$run_diag,
+		);
+	}
+
+	SKIP: {
+		skip 'log.html or index.html missing', 2 unless -f $log_path && -f $index_path;
+		my $log_html = $harness->read_file($log_path);
+		my $index_html = $harness->read_file($index_path);
+		is_with_diag( $index_html, $log_html, 'src/website_md/index.html matches the fake stagit log.html after the shared publishing tail', $run_diag );
+		like_with_diag( $log_html, qr/\Q$repo->{bare_repo_dir}\E/, 'fake stagit log.html records the bare repository path for website_md', $run_diag );
+	}
+
+	like_with_diag(
+		$result->{stdout},
+		qr/\QWEB SERVER DIRECTORY: @{[ $harness->webroot_dir ]}\E/,
+		'verbose output names the temp webroot as the active web server directory',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QBINARY DIRECTORY: $expected_bindir\E/,
+		'verbose output uses the isolated HOME helper-bin path',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QSSG LOCATION: $helpers->{ssg_path}\E/,
+		'verbose output records the absolute fake ssg6 helper path',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QRSSG LOCATION: $helpers->{rssg_path}\E/,
+		'verbose output records the absolute fake rssg helper path',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QClearing out @{[ $harness->webroot_dir ]} (excluding src)\E/,
+		'verbose output records the website-specific cleanup that preserves src',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QRSS FEED LOCATION: $rss_path\E/,
+		'verbose output records the rss.xml output path',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QDeleting $dot_files_path\E/,
+		'verbose output records deletion of the generated .files marker',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QGzipping files in @{[ $harness->webroot_dir ]} (excluding those in src)\E/,
+		'verbose output records the website gzip step that excludes most src content',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QSTAGIT DIRECTORY: $stagit_dir\E/,
+		'verbose output names the shared stagit output directory for website_md',
+		$run_diag,
+	);
+	like_with_diag(
+		$result->{stdout},
+		qr/\QRunning 'stagit -- $repo->{bare_repo_dir}'\E/,
+		'verbose output records the fake stagit invocation for the shared publishing tail',
+		$run_diag,
+	);
+	unlike_with_diag(
+		$result->{stdout},
+		qr/\QWEB SERVER DIRECTORY: $production_webroot\E/,
+		'verbose output does not report the production webroot as active',
+		$run_diag,
+	);
+	unlike_with_diag(
+		$result->{stdout},
+		qr/\QBINARY DIRECTORY: $real_helper_bin\E/,
+		'verbose output does not report the caller real helper-bin path',
+		$run_diag,
+	);
+
+	done_testing();
+};
+
+done_testing();
