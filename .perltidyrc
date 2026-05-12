@@ -1,0 +1,22 @@
+# Basic options
+--indent-columns=4
+--maximum-line-length=80
+--converge
+
+# Tabs
+--entab-leading-whitespace=4
+
+# Code indentation control
+--continuation-indentation=4
+--extended-continuation-indentation
+
+# Vertical alignment
+-novalign
+--no-logical-padding
+--no-hanging-side-comments
+
+# Misc
+--no-outdent-long-lines
+--minimum-space-to-comment=3
+--weld-nested-containers
+--nospace-for-semicolon

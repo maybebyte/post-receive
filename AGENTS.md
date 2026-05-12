@@ -3,6 +3,7 @@
 ## Commands
 
 - Syntax check the production hook with `perl -c bin/post-receive`.
+- Format Perl with `perltidy -b <file>` before commit. `.perltidyrc` at the repo root supplies the shared style; running `perltidy` from anywhere inside the tree picks it up automatically. Tidy every staged `.pl`/`.pm`/`.t` file and `bin/post-receive`, then delete the `.bak` artifacts before staging.
 - Run the supported local proof with `prove -lr t` from the repository root.
 - For focused diagnostics, use `prove -v t/03-website-md.t` or another single TAP file, then rerun `prove -lr t` before claiming the full local proof.
 - Passing TAP output proves contained local behavior through temporary fixtures and fake helpers only. It does not prove live deployment, real `stagit`, `ssg6`, or `rssg` output quality, host ownership or permissions, web-server integration, service integration, or production path safety.
@@ -13,6 +14,7 @@
 - `bin/post-receive` is the self-contained production Git hook. Keep production behavior in this single-file hook; do not extract production modules.
 - `lib/PostReceive/TestHarness.pm` is test-only support for contained TAP runs, fake commands, temporary repositories, and captured diagnostics.
 - `t/` owns behavior-focused TAP coverage for the hook, including baseline checks, harness mechanics, shared publishing, website generation, and deployment-branch behavior.
+- `.perltidyrc` is the shared perltidy style. Tracked at the repo root so every clone formats the same way.
 
 ## Boundaries
 
