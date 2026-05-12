@@ -58,11 +58,13 @@ sub check_repository_helper_dependencies {
 	my ($context) = @_;
 
 	return
-		unless $context->{repo_name_no_dot_git} eq $context->{website_repo_name};
+		unless $context->{repo_name_no_dot_git} eq
+		$context->{website_repo_name};
 
 	for my $helper ( $context->{bin_ssg}, $context->{bin_rssg} ) {
 		-x $helper
-			or die "Required website helper missing or not executable: $helper\n";
+			or die
+			"Required website helper missing or not executable: $helper\n";
 	}
 }
 
@@ -96,12 +98,12 @@ sub build_hook_context {
 	# Production historically publishes straight into /var/www/htdocs/<domain>.
 	# The harness contains that host-path assumption via
 	# POST_RECEIVE_WEB_SERVER_DIR instead of changing the fallback itself.
-	my $web_server_dir =
-		$ENV{'POST_RECEIVE_WEB_SERVER_DIR'}
+	my $web_server_dir = $ENV{'POST_RECEIVE_WEB_SERVER_DIR'}
 		// catfile( rootdir(), qw(var www htdocs), $domain_without_schema );
 
 	my ( $src_dir, $src_page ) = qw(src src.html);
-	my $clone_url = $domain_with_schema . "/$src_dir/$repo_name_no_dot_git/.git";
+	my $clone_url =
+		$domain_with_schema . "/$src_dir/$repo_name_no_dot_git/.git";
 	my $stagit_dir = catdir $web_server_dir, $src_dir, $repo_name_no_dot_git;
 
 	my $website_repo_name = 'website_md';
@@ -110,35 +112,35 @@ sub build_hook_context {
 	my $learning_perl_repo_name = 'learning_perl_exercises';
 
 	my %repo_descriptions = (
-		$website_repo_name       => "Source for $domain_without_schema",
-		$sysadm_repo_name        => 'System Administration Tools',
-		$dotfiles_repo_name      => 'OpenBSD configuration files',
+		$website_repo_name => "Source for $domain_without_schema",
+		$sysadm_repo_name => 'System Administration Tools',
+		$dotfiles_repo_name => 'OpenBSD configuration files',
 		$learning_perl_repo_name => 'Learning Perl exercises',
 	);
 
 	return {
-		repo_location           => $repo_location,
-		repo_name               => $repo_name,
-		repo_name_no_dot_git    => $repo_name_no_dot_git,
-		home                    => $home,
-		bindir                  => $bindir,
-		bin_ssg                 => $bin_ssg,
-		bin_rssg                => $bin_rssg,
-		owner                   => $owner,
-		domain_with_schema      => $domain_with_schema,
-		domain_without_schema   => $domain_without_schema,
-		website_name            => $website_name,
-		website_title           => $website_title,
-		web_server_dir          => $web_server_dir,
-		src_dir                 => $src_dir,
-		src_page                => $src_page,
-		clone_url               => $clone_url,
-		stagit_dir              => $stagit_dir,
-		website_repo_name       => $website_repo_name,
-		sysadm_repo_name        => $sysadm_repo_name,
-		dotfiles_repo_name      => $dotfiles_repo_name,
+		repo_location => $repo_location,
+		repo_name => $repo_name,
+		repo_name_no_dot_git => $repo_name_no_dot_git,
+		home => $home,
+		bindir => $bindir,
+		bin_ssg => $bin_ssg,
+		bin_rssg => $bin_rssg,
+		owner => $owner,
+		domain_with_schema => $domain_with_schema,
+		domain_without_schema => $domain_without_schema,
+		website_name => $website_name,
+		website_title => $website_title,
+		web_server_dir => $web_server_dir,
+		src_dir => $src_dir,
+		src_page => $src_page,
+		clone_url => $clone_url,
+		stagit_dir => $stagit_dir,
+		website_repo_name => $website_repo_name,
+		sysadm_repo_name => $sysadm_repo_name,
+		dotfiles_repo_name => $dotfiles_repo_name,
 		learning_perl_repo_name => $learning_perl_repo_name,
-		repo_descriptions       => \%repo_descriptions,
+		repo_descriptions => \%repo_descriptions,
 	};
 }
 
@@ -184,7 +186,8 @@ sub log_hook_context {
 		],
 		[
 			'LEARNING PERL DESCRIPTION',
-			$context->{repo_descriptions}{ $context->{learning_perl_repo_name} }
+			$context->{repo_descriptions}
+				{ $context->{learning_perl_repo_name} }
 		],
 	);
 
@@ -216,6 +219,7 @@ sub gzip_files {
 
 	if ( $src_policy eq $WEBSITE_ROOT_GZIP_SRC_POLICY ) {
 		if ( $File::Find::name =~ /$context->{src_dir}/ ) {
+
 			# Preserve the intentionally narrow website rule: during the webroot
 			# gzip pass, paths containing src are skipped unless the basename is
 			# exactly src.html. That keeps src/src.html compressed while siblings
@@ -228,7 +232,7 @@ sub gzip_files {
 
 	# Preserve the strict threshold behavior: files must be larger than 1400
 	# bytes. A file at exactly 1400 bytes does not get a gzip sidecar.
-	return unless (-s _) > $GZIP_SIZE_THRESHOLD_BYTES;
+	return unless ( -s _ ) > $GZIP_SIZE_THRESHOLD_BYTES;
 
 	gzip $_ => "$_.gz" or die "gzipping $_ to $_.gz failed: $GzipError\n";
 }
@@ -236,7 +240,8 @@ sub gzip_files {
 sub clone_repo_to_tempdir {
 	my ($context) = @_;
 
-	say "Creating temporary directory for $context->{repo_name_no_dot_git}" if $opt_v;
+	say "Creating temporary directory for $context->{repo_name_no_dot_git}"
+		if $opt_v;
 	my $clone_dir = tempdir( CLEANUP => 1 );
 
 	say "Running 'git clone -- $context->{repo_location} $clone_dir'" if $opt_v;
@@ -253,7 +258,8 @@ sub clone_website_source_to_tempdir {
 sub run_website_ssg {
 	my ( $context, $clone_dir ) = @_;
 
-	say "Running '$context->{bin_ssg} $clone_dir $context->{web_server_dir} $context->{website_name} "
+	say
+		"Running '$context->{bin_ssg} $clone_dir $context->{web_server_dir} $context->{website_name} "
 		. "$context->{domain_with_schema}'"
 		if $opt_v;
 
@@ -261,11 +267,12 @@ sub run_website_ssg {
 	# through, stdout is left on a pipe, and the pipe is only closed after the
 	# child exits. The harness characterizes the resulting files and exit
 	# status, not a cleaner stream contract.
-	my $ssg_pid =
-		open3( undef, my $ssg_out, '>&STDERR', $context->{bin_ssg},
-			$clone_dir, $context->{web_server_dir}, $context->{website_name},
-			$context->{domain_with_schema} )
-		or die "Could not open ssg: $!\n";
+	my $ssg_pid = open3(
+		undef, my $ssg_out,
+		'>&STDERR', $context->{bin_ssg},
+		$clone_dir, $context->{web_server_dir},
+		$context->{website_name}, $context->{domain_with_schema}
+	) or die "Could not open ssg: $!\n";
 
 	waitpid $ssg_pid, 0;
 
@@ -286,7 +293,8 @@ sub write_website_rss_feed {
 	my $rssg_index_location = catfile $clone_dir, $rssg_index_name;
 	say "INDEX LOCATION FOR RSSG: $rssg_index_location" if $opt_v;
 
-	say "Running '$context->{bin_rssg} $rssg_index_location $context->{website_title}'"
+	say
+		"Running '$context->{bin_rssg} $rssg_index_location $context->{website_title}'"
 		if $opt_v;
 
 	# NOTE: rssg hangs if its STDOUT is redirected straight to a file handle,
@@ -335,8 +343,8 @@ sub resolve_sysadm_target_dir {
 	# default /etc/sysadm target without changing the repo-name match.
 	# Production still falls back to the real host path; the harness uses
 	# POST_RECEIVE_SYSADM_DIR so characterization runs never touch /etc.
-	return $ENV{'POST_RECEIVE_SYSADM_DIR'}
-		// catdir &rootdir, 'etc', $context->{sysadm_repo_name};
+	return $ENV{'POST_RECEIVE_SYSADM_DIR'} // catdir &rootdir, 'etc',
+		$context->{sysadm_repo_name};
 }
 
 sub clear_sysadm_target_dir {
@@ -393,7 +401,9 @@ sub replace_dotfiles_rssg_helper {
 sub chmod_dotfiles_helpers {
 	my ($context) = @_;
 
-	say "Changing permissions for $context->{bin_ssg} and $context->{bin_rssg} to 700" if $opt_v;
+	say
+		"Changing permissions for $context->{bin_ssg} and $context->{bin_rssg} to 700"
+		if $opt_v;
 	chmod 0700, $context->{bin_ssg}, $context->{bin_rssg};
 }
 
@@ -417,7 +427,8 @@ sub clone_repo_into_stagit_git_dir {
 	my $stagit_git_dir = catdir $context->{stagit_dir}, '.git';
 	say "STAGIT GIT DIRECTORY: $stagit_git_dir" if $opt_v;
 
-	say "Running 'git clone --bare -- $context->{repo_location} $stagit_git_dir'"
+	say
+		"Running 'git clone --bare -- $context->{repo_location} $stagit_git_dir'"
 		if $opt_v;
 	systemx qw(git clone --bare --), $context->{repo_location}, $stagit_git_dir;
 
@@ -427,7 +438,8 @@ sub clone_repo_into_stagit_git_dir {
 sub update_stagit_git_server_info {
 	my ( $context, $stagit_git_dir ) = @_;
 
-	say "Running 'git update-server-info' for $context->{repo_name_no_dot_git}" if $opt_v;
+	say "Running 'git update-server-info' for $context->{repo_name_no_dot_git}"
+		if $opt_v;
 	chdir $stagit_git_dir;
 	systemx qw(git update-server-info);
 }
@@ -452,10 +464,12 @@ sub write_owner_metadata {
 	my (%args) = @_;
 
 	unless ( eval {
-		open my $repo_owner_fh, '>', catfile( $args{repo_location}, 'owner' );
+		open my $repo_owner_fh, '>',
+			catfile( $args{repo_location}, 'owner' );
 		say $repo_owner_fh $args{owner};
 		close $repo_owner_fh;
-		say "Populated owner metadata for $args{repo_name_no_dot_git}" if $opt_v;
+		say "Populated owner metadata for $args{repo_name_no_dot_git}"
+			if $opt_v;
 	} )
 	{
 		print STDERR "Couldn't write to $args{repo_location}/owner $@" if $@;
@@ -468,13 +482,15 @@ sub write_description_metadata {
 	unless ( eval {
 		open my $repo_description_fh, '>',
 			catfile( $args{repo_location}, 'description' );
-		say $repo_description_fh $args{repo_descriptions}{ $args{repo_name_no_dot_git} };
+		say $repo_description_fh $args{repo_descriptions}
+			{ $args{repo_name_no_dot_git} };
 		close $repo_description_fh;
 		say "Populated description metadata for $args{repo_name_no_dot_git}"
 			if $opt_v;
 	} )
 	{
-		print STDERR "Couldn't write to $args{repo_location}/description: $@" if $@;
+		print STDERR "Couldn't write to $args{repo_location}/description: $@"
+			if $@;
 	}
 }
 
@@ -482,8 +498,7 @@ sub write_url_metadata {
 	my (%args) = @_;
 
 	unless ( eval {
-		open my $repo_url_fh, '>',
-			catfile( $args{repo_location}, 'url' );
+		open my $repo_url_fh, '>', catfile( $args{repo_location}, 'url' );
 		say $repo_url_fh $args{clone_url};
 		close $repo_url_fh;
 		say "Populated URL metadata for $args{repo_name_no_dot_git}"
@@ -506,11 +521,11 @@ sub write_metadata_from_context {
 	my ($context) = @_;
 
 	write_repository_metadata(
-		repo_location        => $context->{repo_location},
+		repo_location => $context->{repo_location},
 		repo_name_no_dot_git => $context->{repo_name_no_dot_git},
-		owner                => $context->{owner},
-		clone_url            => $context->{clone_url},
-		repo_descriptions    => $context->{repo_descriptions},
+		owner => $context->{owner},
+		clone_url => $context->{clone_url},
+		repo_descriptions => $context->{repo_descriptions},
 	);
 }
 
@@ -527,7 +542,8 @@ sub prepare_stagit_directory {
 sub clear_website_root_preserving_src {
 	my ($context) = @_;
 
-	say "Clearing out $context->{web_server_dir} (excluding $context->{src_dir})"
+	say
+		"Clearing out $context->{web_server_dir} (excluding $context->{src_dir})"
 		if $opt_v;
 
 	# Website generation rewrites the site root, but src/ must survive so
@@ -560,9 +576,11 @@ sub delete_website_files_marker {
 sub gzip_website_root_output {
 	my ($context) = @_;
 
-	say "Gzipping files in $context->{web_server_dir} (excluding those in $context->{src_dir})"
+	say
+		"Gzipping files in $context->{web_server_dir} (excluding those in $context->{src_dir})"
 		if $opt_v;
-	find build_find_wanted_callback( \&gzip_files, $context, $WEBSITE_ROOT_GZIP_SRC_POLICY ),
+	find build_find_wanted_callback( \&gzip_files, $context,
+		$WEBSITE_ROOT_GZIP_SRC_POLICY ),
 		$context->{web_server_dir};
 }
 
@@ -581,8 +599,8 @@ sub build_repository_action_dispatch {
 	my ($context) = @_;
 
 	return {
-		$context->{website_repo_name}  => \&run_website_md_action,
-		$context->{sysadm_repo_name}   => \&run_sysadm_action,
+		$context->{website_repo_name} => \&run_website_md_action,
+		$context->{sysadm_repo_name} => \&run_sysadm_action,
 		$context->{dotfiles_repo_name} => \&run_dotfiles_action,
 	};
 }
@@ -602,22 +620,23 @@ sub run_repository_specific_actions {
 sub build_shared_stagit_asset_copy_plan {
 	my ($context) = @_;
 
-	my $shared_stagit_asset_dir = catdir( $context->{web_server_dir}, 'stagit' );
+	my $shared_stagit_asset_dir =
+		catdir( $context->{web_server_dir}, 'stagit' );
 
 	return (
 		{
-			label       => 'CSS',
-			source      => catfile( $shared_stagit_asset_dir, 'style.css' ),
+			label => 'CSS',
+			source => catfile( $shared_stagit_asset_dir, 'style.css' ),
 			destination => catfile( $context->{stagit_dir}, 'style.css' ),
 		},
 		{
-			label       => 'logo',
-			source      => catfile( $shared_stagit_asset_dir, 'logo.png' ),
+			label => 'logo',
+			source => catfile( $shared_stagit_asset_dir, 'logo.png' ),
 			destination => catfile( $context->{stagit_dir}, 'logo.png' ),
 		},
 		{
-			label       => 'favicon',
-			source      => catfile( $shared_stagit_asset_dir, 'favicon.png' ),
+			label => 'favicon',
+			source => catfile( $shared_stagit_asset_dir, 'favicon.png' ),
 			destination => catfile( $context->{stagit_dir}, 'favicon.png' ),
 		},
 	);
@@ -634,10 +653,12 @@ sub copy_shared_stagit_assets {
 	say "Copying $stagit_log to $stagit_index" if $opt_v;
 	copy $stagit_log, $stagit_index;
 
-	my @shared_stagit_asset_copy_plan = build_shared_stagit_asset_copy_plan($context);
+	my @shared_stagit_asset_copy_plan =
+		build_shared_stagit_asset_copy_plan($context);
 
 	for my $copy_step (@shared_stagit_asset_copy_plan) {
-		my ( $label, $source, $destination ) = @{$copy_step}{qw(label source destination)};
+		my ( $label, $source, $destination ) =
+			@{$copy_step}{qw(label source destination)};
 		say "Copying $label from $source to $destination" if $opt_v;
 		copy $source, $destination;
 	}
@@ -647,7 +668,8 @@ sub gzip_stagit_publish_output {
 	my ($context) = @_;
 
 	say "Gzipping files in $context->{stagit_dir}" if $opt_v;
-	find build_find_wanted_callback( \&gzip_files, $context ), $context->{stagit_dir};
+	find build_find_wanted_callback( \&gzip_files, $context ),
+		$context->{stagit_dir};
 }
 
 sub run_final_stagit_publish_phase {
