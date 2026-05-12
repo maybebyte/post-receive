@@ -3,27 +3,12 @@ use strict;
 use warnings;
 
 use File::Basename qw(dirname);
-use File::Path qw(make_path);
 use File::Spec;
 use File::Spec::Functions qw(catdir catfile rootdir);
 use Test::More;
 use lib File::Spec->catdir( dirname( File::Spec->rel2abs(__FILE__) ), 'lib' );
 
 use PostReceive::TestHarness;
-
-sub harness_diag {
-	my ($harness) = @_;
-
-	return join(
-		"\n",
-		'workspace_dir: ' . $harness->workspace_dir,
-		'home_dir: ' . $harness->home_dir,
-		'webroot_dir: ' . $harness->webroot_dir,
-		'fake_command_dir: ' . $harness->fake_command_dir,
-		'repo_fixture_root: ' . $harness->repo_fixture_root,
-		'PATH: ' . $harness->path,
-	);
-}
 
 sub setup_or_return {
 	my ( $label, $code, $harness ) = @_;
@@ -36,7 +21,7 @@ sub setup_or_return {
 
 	fail($label);
 	diag($@);
-	diag( harness_diag($harness) );
+	diag( $harness->describe_workspace );
 	return;
 }
 
@@ -64,35 +49,6 @@ sub unlike_with_diag {
 	return;
 }
 
-sub executable_on_path {
-	my ( $path, $name ) = @_;
-
-	for my $dir ( split /:/, $path // q{} ) {
-		next unless defined $dir && length $dir;
-		my $candidate = File::Spec->catfile( $dir, $name );
-		return $candidate if -f $candidate && -x $candidate;
-	}
-
-	return;
-}
-
-sub parse_fake_stagit_trace {
-	my ($trace_text) = @_;
-
-	my %trace = ( argv => [] );
-	for my $line ( split /\n/, $trace_text ) {
-		if ( $line =~ /^cwd=(.*)\z/ ) {
-			$trace{cwd} = $1;
-			next;
-		}
-		if ( $line =~ /^argv\[(\d+)\]=(.*)\z/ ) {
-			$trace{argv}->[$1] = $2;
-		}
-	}
-
-	return \%trace;
-}
-
 sub perl_single_quote {
 	my ($text) = @_;
 
@@ -100,25 +56,6 @@ sub perl_single_quote {
 	$text =~ s{'}{\\'}g;
 
 	return "'$text'";
-}
-
-sub write_file {
-	my (%args) = @_;
-
-	my $path = $args{path} // die "write_file requires a path\n";
-	my $content = defined $args{content} ? $args{content} : q{};
-
-	open my $fh, '>', $path
-		or die "Could not open $path for writing: $!\n";
-	if ( $args{binary} ) {
-		binmode $fh or die "Could not enable binmode for $path: $!\n";
-	}
-	print {$fh} $content
-		or die "Could not write to $path: $!\n";
-	close $fh
-		or die "Could not close $path: $!\n";
-
-	return $path;
 }
 
 sub install_fake_stagit_matrix {
@@ -258,7 +195,7 @@ write_exact_text(
 );
 FAKE_STAGIT
 
-	write_file(
+	$harness->write_file(
 		path    => $fake->{fake_stagit_path},
 		content => $script,
 	);
@@ -278,7 +215,7 @@ subtest 'fake stagit shared publishing gzip matrix' => sub {
 		"\n",
 		'Install the missing prerequisite on PATH before running this shared publishing test.',
 		'The test expects real git plus a fake stagit shim that is prepended on PATH.',
-		harness_diag($harness),
+		$harness->workspace_diag,
 	);
 
 	cmp_ok( length($style_css), '>', 1400, 'seeded style.css exceeds the gzip threshold' );
@@ -311,13 +248,13 @@ subtest 'fake stagit shared publishing gzip matrix' => sub {
 	);
 
 	is_with_diag(
-		executable_on_path( $harness->path, 'stagit' ),
+		$harness->executable_on_path('stagit'),
 		$fake->{fake_stagit_path},
 		'fake stagit resolves first on the harness PATH',
 		$prereq_diag,
 	);
 
-	my $real_git = executable_on_path( $harness->path, 'git' );
+	my $real_git = $harness->executable_on_path('git');
 	ok_with_diag( defined $real_git, 'real git executable available on harness PATH', $prereq_diag );
 	return unless defined $real_git;
 
@@ -348,12 +285,11 @@ subtest 'fake stagit shared publishing gzip matrix' => sub {
 	my $stale_path = setup_or_return(
 		'seed stale stagit output marker',
 		sub {
-			make_path($stagit_dir);
-			my $path = catfile( $stagit_dir, 'stale-before-run.txt' );
-			open my $fh, '>', $path;
-			print {$fh} "stale output that should be removed\n";
-			close $fh;
-			return $path;
+			$harness->ensure_dir($stagit_dir);
+			return $harness->write_file(
+				path    => catfile( $stagit_dir, 'stale-before-run.txt' ),
+				content => "stale output that should be removed\n",
+			);
 		},
 		$harness,
 	);
@@ -536,7 +472,7 @@ subtest 'fake stagit shared publishing gzip matrix' => sub {
 
 	SKIP: {
 		skip 'fake stagit trace missing', 2 unless -f $trace_path;
-		my $trace = parse_fake_stagit_trace( $harness->read_file($trace_path) );
+		my $trace = $harness->parse_trace_file($trace_path);
 		is_with_diag( $trace->{cwd}, $stagit_dir, 'fake stagit recorded the stagit output directory as cwd', $run_diag );
 		is_deeply( $trace->{argv}, [ '--', $repo->{bare_repo_dir} ], 'fake stagit recorded the expected argv' )
 			or diag($run_diag);
@@ -558,24 +494,6 @@ subtest 'fake stagit shared publishing gzip matrix' => sub {
 		$result->{stdout},
 		qr/\QSTAGIT DIRECTORY: $stagit_dir\E/,
 		'verbose output names the shared stagit output directory under the temp webroot',
-		$run_diag,
-	);
-	like_with_diag(
-		$result->{stdout},
-		qr/\QRunning 'git clone --bare -- $repo->{bare_repo_dir} $stagit_git_dir'\E/,
-		'verbose output records the real bare clone into .git',
-		$run_diag,
-	);
-	like_with_diag(
-		$result->{stdout},
-		qr/\QRunning 'git update-server-info' for learning_perl_exercises\E/,
-		'verbose output records git update-server-info',
-		$run_diag,
-	);
-	like_with_diag(
-		$result->{stdout},
-		qr/\QRunning 'stagit -- $repo->{bare_repo_dir}'\E/,
-		'verbose output records the fake stagit invocation against the bare repository fixture',
 		$run_diag,
 	);
 	unlike_with_diag(

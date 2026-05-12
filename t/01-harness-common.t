@@ -21,10 +21,7 @@ sub setup_or_stop {
 
 	fail($label);
 	diag($@);
-	diag( 'workspace_dir: ' . $harness->workspace_dir );
-	diag( 'home_dir: ' . $harness->home_dir );
-	diag( 'webroot_dir: ' . $harness->webroot_dir );
-	diag( 'repo_fixture_root: ' . $harness->repo_fixture_root );
+	diag( $harness->describe_workspace );
 	done_testing();
 	exit 1;
 }
@@ -53,23 +50,6 @@ sub unlike_with_diag {
 	return;
 }
 
-sub parse_fake_stagit_trace {
-	my ($trace_text) = @_;
-
-	my %trace = ( argv => [] );
-	for my $line ( split /\n/, $trace_text ) {
-		if ( $line =~ /^cwd=(.*)\z/ ) {
-			$trace{cwd} = $1;
-			next;
-		}
-		if ( $line =~ /^argv\[(\d+)\]=(.*)\z/ ) {
-			$trace{argv}->[$1] = $2;
-		}
-	}
-
-	return \%trace;
-}
-
 my $harness = PostReceive::TestHarness->new;
 my $assets = setup_or_stop(
 	'seed shared stagit assets',
@@ -92,6 +72,151 @@ my $repo = setup_or_stop(
 	},
 	$harness,
 );
+
+subtest 'public helper surface exposes workspace, file, executable, trace, and mode mechanics' => sub {
+	my $workspace_diag = $harness->describe_workspace;
+
+	is_with_diag(
+		$harness->workspace_diag,
+		$workspace_diag,
+		'workspace_diag aliases describe_workspace',
+		$workspace_diag,
+	);
+
+	for my $diag_line (
+		'workspace_dir: ' . $harness->workspace_dir,
+		'home_dir: ' . $harness->home_dir,
+		'webroot_dir: ' . $harness->webroot_dir,
+		'fake_command_dir: ' . $harness->fake_command_dir,
+		'repo_fixture_root: ' . $harness->repo_fixture_root,
+		'PATH: ' . $harness->path,
+	) {
+		like_with_diag(
+			$workspace_diag,
+			qr/^\Q$diag_line\E$/m,
+			"describe_workspace includes $diag_line",
+			$workspace_diag,
+		);
+	}
+
+	my $ensured_dir = $harness->ensure_dir(
+		catdir( qw(helper-check nested parent) )
+	);
+	ok_with_diag( -d $ensured_dir, 'ensure_dir creates a nested relative directory', $workspace_diag );
+	like_with_diag(
+		$ensured_dir,
+		qr/^\Q@{[ $harness->workspace_dir ]}\E(?:\/|\z)/,
+		'ensure_dir resolves relative directories under the harness workspace',
+		$workspace_diag,
+	);
+
+	my $text_path = $harness->write_file(
+		path    => catfile( qw(helper-check nested parent child note.txt) ),
+		content => "helper file content\n",
+	);
+	ok_with_diag( -f $text_path, 'write_file creates missing parent directories for relative paths', $workspace_diag );
+	is_with_diag(
+		$harness->read_file($text_path),
+		"helper file content\n",
+		'write_file stores text content that read_file can read back',
+		$workspace_diag,
+	);
+
+	my $binary_payload = "\x00helper\xFF\n";
+	my $binary_path = $harness->write_file(
+		path    => catfile( qw(helper-check nested parent payload.bin) ),
+		content => $binary_payload,
+		binary  => 1,
+	);
+	is_with_diag(
+		$harness->read_file($binary_path),
+		$binary_payload,
+		'write_file preserves binary content',
+		$workspace_diag,
+	);
+
+	my $helper_tool_path = $harness->write_file(
+		path    => catfile( qw(helper-check bin helper-tool) ),
+		content => "#!/bin/sh\nexit 0\n",
+	);
+	chmod 0700, $helper_tool_path
+		or die "Could not chmod 0700 $helper_tool_path: $!\n";
+
+	is_with_diag(
+		$harness->executable_on_path('stagit'),
+		$harness->fake_stagit_path,
+		'executable_on_path finds the fake stagit shim on the harness PATH',
+		$workspace_diag,
+	);
+	is_with_diag(
+		$harness->executable_on_path( 'helper-tool', path => catdir( qw(helper-check bin) ) ),
+		$helper_tool_path,
+		'executable_on_path resolves relative PATH entries under the harness workspace',
+		$workspace_diag,
+	);
+	is_with_diag(
+		$harness->executable_in_dir( catdir( qw(helper-check bin) ), 'helper-tool' ),
+		$helper_tool_path,
+		'executable_in_dir resolves relative directories under the harness workspace',
+		$workspace_diag,
+	);
+	ok_with_diag(
+		!defined $harness->executable_on_path('missing-helper'),
+		'executable_on_path returns undef for a missing executable',
+		$workspace_diag,
+	);
+	ok_with_diag(
+		!defined $harness->executable_in_dir( catdir( qw(helper-check bin) ), 'missing-helper' ),
+		'executable_in_dir returns undef for a missing executable',
+		$workspace_diag,
+	);
+
+	my $trace_text = join(
+		"\n",
+		'cwd=/tmp/helper-trace',
+		'argv[0]=--',
+		'argv[1]=repos/example.git',
+		'helper=fake-stagit',
+		'trace.version=1',
+		'malformed line without equals',
+		'argv[bad]=ignored',
+		q{},
+	);
+	my $parsed_trace = $harness->parse_trace($trace_text);
+	is_deeply(
+		$parsed_trace,
+		{
+			argv            => [ '--', 'repos/example.git' ],
+			cwd             => '/tmp/helper-trace',
+			helper          => 'fake-stagit',
+			'trace.version' => '1',
+		},
+		'parse_trace captures argv and generic key lines while ignoring malformed input',
+	) or diag($workspace_diag);
+
+	my $trace_file = $harness->write_file(
+		path    => catfile( qw(helper-check traces sample.trace) ),
+		content => $trace_text,
+	);
+	is_deeply(
+		$harness->parse_trace_file($trace_file),
+		$parsed_trace,
+		'parse_trace_file reads and parses a harness-owned absolute trace path',
+	) or diag($workspace_diag);
+
+	is_with_diag(
+		$harness->file_mode_octal( catfile( qw(helper-check bin helper-tool) ) ),
+		'0700',
+		'file_mode_octal reports executable mode for a relative harness path',
+		$workspace_diag,
+	);
+	ok_with_diag(
+		!defined $harness->file_mode_octal( catfile( qw(helper-check missing mode.txt) ) ),
+		'file_mode_octal returns undef for a missing file',
+		$workspace_diag,
+	);
+	done_testing();
+};
 
 my $result = $harness->run_post_receive( argv => ['-v'] );
 my $run_diag = $harness->describe_run($result);
@@ -207,7 +332,7 @@ SKIP: {
 
 SKIP: {
 	skip 'fake stagit trace missing', 2 unless -f $trace_path;
-	my $trace = parse_fake_stagit_trace( $harness->read_file($trace_path) );
+	my $trace = $harness->parse_trace_file($trace_path);
 	is_with_diag( $trace->{cwd}, $stagit_dir, 'fake stagit recorded the stagit output directory as cwd', $run_diag );
 	is_deeply( $trace->{argv}, [ '--', $repo->{bare_repo_dir} ], 'fake stagit recorded the expected argv' )
 		or diag($run_diag);

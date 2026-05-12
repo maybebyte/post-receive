@@ -77,6 +77,134 @@ sub path { return $_[0]->{path}; }
 sub command_results { return $_[0]->{command_results}; }
 sub last_hook_result { return $_[0]->{last_hook_result}; }
 
+sub describe_workspace {
+	my ($self) = @_;
+
+	return join(
+		"\n",
+		'workspace_dir: ' . $self->{workspace_dir},
+		'home_dir: ' . $self->{home_dir},
+		'webroot_dir: ' . $self->{webroot_dir},
+		'fake_command_dir: ' . $self->{fake_command_dir},
+		'repo_fixture_root: ' . $self->{repo_fixture_root},
+		'PATH: ' . $self->{path},
+	);
+}
+
+sub workspace_diag {
+	my ($self) = @_;
+	return $self->describe_workspace;
+}
+
+sub ensure_dir {
+	my ( $self, $path ) = @_;
+
+	croak "ensure_dir requires a path\n"
+		unless defined $path && length $path;
+
+	my $absolute_path = _absolute_path( $path, $self->{workspace_dir} );
+	return _ensure_dir($absolute_path);
+}
+
+sub write_file {
+	my ( $self, %args ) = @_;
+
+	my $path = $args{path}
+		// croak "write_file requires a path\n";
+	my $absolute_path = _absolute_path( $path, $self->{workspace_dir} );
+
+	_write_file(
+		path    => $absolute_path,
+		content => defined $args{content} ? $args{content} : q{},
+		binary  => $args{binary},
+	);
+
+	return $absolute_path;
+}
+
+sub executable_on_path {
+	my ( $self, $name, %args ) = @_;
+
+	croak "executable_on_path requires a name\n"
+		unless defined $name && length $name;
+
+	my $path = exists $args{path} ? $args{path} : $self->{path};
+	return unless defined $path && length $path;
+
+	for my $dir ( split /:/, $path ) {
+		next unless defined $dir && length $dir;
+		my $candidate = File::Spec->catfile(
+			_absolute_path( $dir, $self->{workspace_dir} ),
+			$name,
+		);
+		return $candidate if -f $candidate && -x $candidate;
+	}
+
+	return;
+}
+
+sub executable_in_dir {
+	my ( $self, $dir, $name ) = @_;
+
+	croak "executable_in_dir requires a directory\n"
+		unless defined $dir && length $dir;
+	croak "executable_in_dir requires a name\n"
+		unless defined $name && length $name;
+
+	my $candidate = File::Spec->catfile(
+		_absolute_path( $dir, $self->{workspace_dir} ),
+		$name,
+	);
+	return $candidate if -f $candidate && -x $candidate;
+
+	return;
+}
+
+sub parse_trace {
+	my ( $self, $trace_text ) = @_;
+
+	croak "parse_trace requires trace text\n"
+		unless defined $trace_text;
+
+	my %trace = ( argv => [] );
+	for my $line ( split /\n/, $trace_text ) {
+		if ( $line =~ /^argv\[(\d+)\]=(.*)\z/ ) {
+			$trace{argv}->[$1] = $2;
+			next;
+		}
+		if ( $line =~ /^([A-Za-z0-9_.-]+)=(.*)\z/ ) {
+			$trace{$1} = $2;
+		}
+	}
+
+	return \%trace;
+}
+
+sub parse_trace_file {
+	my ( $self, $path ) = @_;
+
+	croak "parse_trace_file requires a path\n"
+		unless defined $path && length $path;
+
+	my $absolute_path = _absolute_path( $path, $self->{workspace_dir} );
+	return $self->parse_trace( _slurp_file($absolute_path) );
+}
+
+sub file_mode_octal {
+	my ( $self, $path ) = @_;
+
+	croak "file_mode_octal requires a path\n"
+		unless defined $path && length $path;
+
+	my $absolute_path = _absolute_path( $path, $self->{workspace_dir} );
+	return unless -e $absolute_path;
+
+	my $mode = ( stat $absolute_path )[2];
+	return unless defined $mode;
+
+	return sprintf '%04o', $mode & 07777;
+}
+
 sub seed_stagit_assets {
 	my ( $self, %args ) = @_;
 
@@ -262,6 +390,81 @@ sub create_bare_repo {
 		work_clone_dir => $work_clone_dir,
 		file_rel       => $file_rel,
 		file_path      => $file_path,
+	};
+}
+
+sub append_to_work_clone {
+	my ( $self, %args ) = @_;
+
+	my $work_clone_dir = $args{work_clone_dir}
+		// $self->{work_clone_dir}
+		// croak "append_to_work_clone requires work_clone_dir or a prior create_bare_repo call\n";
+	my $absolute_work_clone_dir = _absolute_path(
+		$work_clone_dir,
+		$self->{workspace_dir}
+	);
+	croak "append_to_work_clone work_clone_dir does not exist: $absolute_work_clone_dir\n"
+		unless -d $absolute_work_clone_dir;
+
+	my $files = $args{files};
+	croak "append_to_work_clone requires a non-empty files array reference\n"
+		unless ref $files eq 'ARRAY' && @{$files};
+
+	my @git_add;
+	for my $file ( @{$files} ) {
+		croak "append_to_work_clone expects each file entry as a hash reference\n"
+			unless ref $file eq 'HASH';
+
+		my $file_rel = $file->{file_rel};
+		croak "append_to_work_clone file entry is missing file_rel\n"
+			unless defined $file_rel && length $file_rel;
+		croak "append_to_work_clone file_rel must be relative: $file_rel\n"
+			if File::Spec->file_name_is_absolute($file_rel);
+
+		my @file_parts = File::Spec->splitdir($file_rel);
+		croak "append_to_work_clone file_rel must stay within the work clone: $file_rel\n"
+			if grep { defined $_ && $_ eq File::Spec->updir } @file_parts;
+
+		my $file_path = File::Spec->catfile(
+			$absolute_work_clone_dir,
+			@file_parts,
+		);
+		$self->write_file(
+			path    => $file_path,
+			content => defined $file->{content} ? $file->{content} : q{},
+			binary  => $file->{binary},
+		);
+		push @git_add, $file_rel;
+	}
+
+	my $commit_message = $args{commit_message} // 'Append fixture files';
+	my $env = $self->_base_env;
+
+	$self->_run_checked_command(
+		label   => 'git-add-appended-fixture',
+		cwd     => $absolute_work_clone_dir,
+		command => [ qw(git add --), @git_add ],
+		env     => $env,
+	);
+	$self->_run_checked_command(
+		label   => 'git-commit-appended-fixture',
+		cwd     => $absolute_work_clone_dir,
+		command => [ qw(git commit -m), $commit_message ],
+		env     => $env,
+	);
+	$self->_run_checked_command(
+		label   => 'git-push-appended-fixture',
+		cwd     => $absolute_work_clone_dir,
+		command => [ qw(git push origin HEAD) ],
+		env     => $env,
+	);
+
+	$self->{work_clone_dir} = $absolute_work_clone_dir;
+
+	return {
+		work_clone_dir  => $absolute_work_clone_dir,
+		files           => [ @git_add ],
+		commit_message  => $commit_message,
 	};
 }
 

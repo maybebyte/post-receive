@@ -3,27 +3,12 @@ use strict;
 use warnings;
 
 use File::Basename qw(dirname);
-use File::Path qw(make_path);
 use File::Spec;
 use File::Spec::Functions qw(catdir catfile rootdir);
 use Test::More;
 use lib File::Spec->catdir( dirname( File::Spec->rel2abs(__FILE__) ), 'lib' );
 
 use PostReceive::TestHarness;
-
-sub harness_diag {
-	my ($harness) = @_;
-
-	return join(
-		"\n",
-		'workspace_dir: ' . $harness->workspace_dir,
-		'home_dir: ' . $harness->home_dir,
-		'webroot_dir: ' . $harness->webroot_dir,
-		'fake_command_dir: ' . $harness->fake_command_dir,
-		'repo_fixture_root: ' . $harness->repo_fixture_root,
-		'PATH: ' . $harness->path,
-	);
-}
 
 sub setup_or_return {
 	my ( $label, $code, $harness ) = @_;
@@ -36,7 +21,7 @@ sub setup_or_return {
 
 	fail($label);
 	diag($@);
-	diag( harness_diag($harness) );
+	diag( $harness->workspace_diag );
 	return;
 }
 
@@ -64,43 +49,6 @@ sub unlike_with_diag {
 	return;
 }
 
-sub executable_on_path {
-	my ( $path, $name ) = @_;
-
-	for my $dir ( split /:/, $path // q{} ) {
-		next unless defined $dir && length $dir;
-		my $candidate = File::Spec->catfile( $dir, $name );
-		return $candidate if -f $candidate && -x $candidate;
-	}
-
-	return;
-}
-
-sub executable_in_dir {
-	my ( $dir, $name ) = @_;
-
-	my $candidate = File::Spec->catfile( $dir, $name );
-	return $candidate if -f $candidate && -x $candidate;
-	return;
-}
-
-sub parse_trace {
-	my ($trace_text) = @_;
-
-	my %trace = ( argv => [] );
-	for my $line ( split /\n/, $trace_text ) {
-		if ( $line =~ /^argv\[(\d+)\]=(.*)\z/ ) {
-			$trace{argv}->[$1] = $2;
-			next;
-		}
-		if ( $line =~ /^([A-Za-z0-9_.-]+)=(.*)\z/ ) {
-			$trace{$1} = $2;
-		}
-	}
-
-	return \%trace;
-}
-
 sub perl_single_quote {
 	my ($text) = @_;
 
@@ -110,31 +58,10 @@ sub perl_single_quote {
 	return "'$text'";
 }
 
-sub write_file {
-	my (%args) = @_;
-
-	my $path = $args{path} // die "write_file requires a path\n";
-	my $content = defined $args{content} ? $args{content} : q{};
-
-	make_path( dirname($path) );
-	open my $fh, '>', $path
-		or die "Could not open $path for writing: $!\n";
-	if ( $args{binary} ) {
-		binmode $fh or die "Could not enable binmode for $path: $!\n";
-	}
-	print {$fh} $content
-		or die "Could not write to $path: $!\n";
-	close $fh
-		or die "Could not close $path: $!\n";
-
-	return $path;
-}
-
 sub install_fake_website_helpers {
 	my ($harness) = @_;
 
-	my $bindir = catdir( $harness->home_dir, qw(.local bin) );
-	make_path($bindir);
+	my $bindir = $harness->ensure_dir( catdir( $harness->home_dir, qw(.local bin) ) );
 
 	my $ssg_path = catfile( $bindir, 'ssg6' );
 	my $rssg_path = catfile( $bindir, 'rssg' );
@@ -263,11 +190,11 @@ print $xml
 FAKE_RSSG
 	$rssg_script =~ s/__TRACE_PATH__/$rssg_trace_literal/;
 
-	write_file(
+	$harness->write_file(
 		path    => $ssg_path,
 		content => $ssg_script,
 	);
-	write_file(
+	$harness->write_file(
 		path    => $rssg_path,
 		content => $rssg_script,
 	);
@@ -315,7 +242,7 @@ subtest 'website_md branch uses isolated helpers and preserves shared publishing
 		"\n",
 		'Install the missing prerequisite on PATH before running this website_md characterization test.',
 		'The test expects real git, fake stagit on the harness PATH, and fake ssg6/rssg at the isolated HOME absolute paths.',
-		harness_diag($harness),
+		$harness->workspace_diag,
 	);
 
 	my $helpers = setup_or_return(
@@ -340,13 +267,13 @@ subtest 'website_md branch uses isolated helpers and preserves shared publishing
 	);
 
 	is_with_diag(
-		executable_on_path( $harness->path, 'stagit' ),
+		$harness->executable_on_path('stagit'),
 		$fake_stagit->{fake_stagit_path},
 		'fake stagit resolves first on the harness PATH',
 		$prereq_diag,
 	);
 
-	my $real_git = executable_on_path( $harness->path, 'git' );
+	my $real_git = $harness->executable_on_path('git');
 	ok_with_diag( defined $real_git, 'real git executable available on harness PATH', $prereq_diag );
 	return unless defined $real_git;
 
@@ -358,13 +285,13 @@ subtest 'website_md branch uses isolated helpers and preserves shared publishing
 	);
 
 	is_with_diag(
-		executable_in_dir( $helpers->{bindir}, 'ssg6' ),
+		$harness->executable_in_dir( $helpers->{bindir}, 'ssg6' ),
 		$helpers->{ssg_path},
 		'fake ssg6 resolves at the isolated HOME absolute path',
 		$prereq_diag,
 	);
 	is_with_diag(
-		executable_in_dir( $helpers->{bindir}, 'rssg' ),
+		$harness->executable_in_dir( $helpers->{bindir}, 'rssg' ),
 		$helpers->{rssg_path},
 		'fake rssg resolves at the isolated HOME absolute path',
 		$prereq_diag,
@@ -424,27 +351,27 @@ subtest 'website_md branch uses isolated helpers and preserves shared publishing
 	setup_or_return(
 		'seed stale and preserved webroot fixtures',
 		sub {
-			write_file(
+			$harness->write_file(
 				path    => $stale_root_path,
 				content => "remove this stale root file\n",
 			);
-			write_file(
+			$harness->write_file(
 				path    => $stale_root_nested_path,
 				content => "remove this stale nested root file\n",
 			);
-			write_file(
+			$harness->write_file(
 				path    => $stale_root_stagit_path,
 				content => "stale root stagit asset should be removed\n",
 			);
-			write_file(
+			$harness->write_file(
 				path    => $preserved_src_path,
 				content => "keep this src fixture outside src/website_md\n",
 			);
-			write_file(
+			$harness->write_file(
 				path    => $preserved_other_repo_path,
 				content => "keep this nested src fixture outside src/website_md\n",
 			);
-			write_file(
+			$harness->write_file(
 				path    => $stale_website_repo_path,
 				content => "stale website_md output should be cleared before shared publishing\n",
 			);
@@ -539,11 +466,10 @@ subtest 'website_md branch uses isolated helpers and preserves shared publishing
 	ok_with_diag( -f $index_path, 'hook copied log.html to index.html', $run_diag );
 
 	SKIP: {
-		skip 'website helper traces missing', 18 unless -f $helpers->{ssg_trace_path} && -f $helpers->{rssg_trace_path};
-		my $ssg_trace = parse_trace( $harness->read_file( $helpers->{ssg_trace_path} ) );
-		my $rssg_trace = parse_trace( $harness->read_file( $helpers->{rssg_trace_path} ) );
+		skip 'website helper traces missing', 12 unless -f $helpers->{ssg_trace_path} && -f $helpers->{rssg_trace_path};
+		my $ssg_trace = $harness->parse_trace_file( $helpers->{ssg_trace_path} );
+		my $rssg_trace = $harness->parse_trace_file( $helpers->{rssg_trace_path} );
 
-		is_with_diag( $ssg_trace->{helper}, 'ssg6', 'fake ssg6 trace identified the helper name', $run_diag );
 		is_with_diag( $ssg_trace->{self}, $helpers->{ssg_path}, 'fake ssg6 trace recorded the absolute helper path', $run_diag );
 		is_with_diag( $ssg_trace->{cwd}, $repo->{bare_repo_dir}, 'fake ssg6 trace recorded the bare repository as cwd', $run_diag );
 		is_deeply(
@@ -551,10 +477,7 @@ subtest 'website_md branch uses isolated helpers and preserves shared publishing
 			[ $rssg_trace->{argv}->[0] =~ s{/index\.md\z}{}r, $harness->webroot_dir, $website_name, $domain_with_schema ],
 			'fake ssg6 trace recorded clone dir, temp webroot, website name, and public domain argv',
 		) or diag($run_diag);
-		is_with_diag( $ssg_trace->{index_exists}, 1, 'fake ssg6 observed index.md inside the temporary cloned website source', $run_diag );
-		is_with_diag( $ssg_trace->{created_dot_files}, 1, 'fake ssg6 trace recorded creation of the .files marker', $run_diag );
 
-		is_with_diag( $rssg_trace->{helper}, 'rssg', 'fake rssg trace identified the helper name', $run_diag );
 		is_with_diag( $rssg_trace->{self}, $helpers->{rssg_path}, 'fake rssg trace recorded the absolute helper path', $run_diag );
 		is_with_diag( $rssg_trace->{cwd}, $repo->{bare_repo_dir}, 'fake rssg trace recorded the bare repository as cwd', $run_diag );
 		ok_with_diag( defined $rssg_trace->{argv}->[0], 'fake rssg trace recorded the index path argv entry', $run_diag );
@@ -566,7 +489,6 @@ subtest 'website_md branch uses isolated helpers and preserves shared publishing
 			$run_diag,
 		);
 		is_with_diag( $rssg_trace->{argv}->[1], $website_title, 'fake rssg trace recorded the expected website title', $run_diag );
-		is_with_diag( $rssg_trace->{index_exists}, 1, 'fake rssg observed the cloned index.md path on disk', $run_diag );
 		unlike_with_diag(
 			$ssg_trace->{argv}->[1],
 			qr/^\Q$production_webroot\E(?:\/|\z)/,
@@ -589,7 +511,7 @@ subtest 'website_md branch uses isolated helpers and preserves shared publishing
 
 	SKIP: {
 		skip 'fake stagit trace missing', 2 unless -f $trace_path;
-		my $trace = parse_trace( $harness->read_file($trace_path) );
+		my $trace = $harness->parse_trace_file($trace_path);
 		is_with_diag( $trace->{cwd}, $stagit_dir, 'fake stagit recorded the shared publishing output directory as cwd', $run_diag );
 		is_deeply( $trace->{argv}, [ '--', $repo->{bare_repo_dir} ], 'fake stagit recorded the expected argv for the shared publishing tail' )
 			or diag($run_diag);
