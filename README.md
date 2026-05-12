@@ -32,7 +32,9 @@ Special repositories add a short deployment step before the shared
   `src/` while clearing the web root, writes `rss.xml`, removes the
   generated `.files` marker, gzips eligible site-root output, and then
   publishes `src/website_md`. During that site-root gzip pass, only
-  `src/src.html` is eligible beneath `src/`.
+  `src/src.html` is eligible beneath `src/`. The hook aborts before
+  touching the web root if either helper is missing or not executable,
+  naming the offending path on stderr.
 - `sysadm.git` clones the repository, clears the sysadm target, moves
   top-level clone entries except `.git` into that target, and then
   publishes `src/sysadm`. The target defaults to `/etc/sysadm` and can
@@ -51,7 +53,9 @@ Runtime or deployment hosts need:
 - shared `stagit` assets at `stagit/style.css`, `stagit/logo.png`, and
   `stagit/favicon.png` under the configured web root;
 - `$HOME/.local/bin/ssg6` and `$HOME/.local/bin/rssg` for
-  `website_md.git` and `dotfiles.git`; and
+  `website_md.git`, which the hook checks up front and refuses to run
+  without; `dotfiles.git` installs these helpers in place, so it does
+  not require them to pre-exist; and
 - a deliberate environment for `POST_RECEIVE_WEB_SERVER_DIR`,
   `POST_RECEIVE_SYSADM_DIR`, and `HOME`.
 

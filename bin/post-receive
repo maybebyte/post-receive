@@ -48,6 +48,24 @@ sub check_dependencies {
 	$which_output = undef;
 }
 
+# The website_md branch invokes ssg6 and rssg via absolute HOME/.local/bin
+# paths, so the PATH-based check_dependencies probe cannot catch them. Run
+# this guard after build_hook_context but before any destructive work so a
+# missing helper fails fast with a clear path instead of corrupting the
+# webroot mid-run. Other branches stay out: dotfiles installs the helpers in
+# place, and sysadm/learning_perl_exercises never invoke them.
+sub check_repository_helper_dependencies {
+	my ($context) = @_;
+
+	return
+		unless $context->{repo_name_no_dot_git} eq $context->{website_repo_name};
+
+	for my $helper ( $context->{bin_ssg}, $context->{bin_rssg} ) {
+		-x $helper
+			or die "Required website helper missing or not executable: $helper\n";
+	}
+}
+
 sub parse_options {
 	getopts('v');
 	return $opt_v;
@@ -648,6 +666,8 @@ sub run_post_receive_hook {
 
 	my $context = build_hook_context();
 	log_hook_context($context);
+
+	check_repository_helper_dependencies($context);
 
 	write_metadata_from_context($context);
 	prepare_stagit_directory($context);
