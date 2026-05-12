@@ -124,6 +124,11 @@ Change one behavior at a time and rerun `prove -lr t` after each change.
 Treat the web root, the sysadm target, and `$HOME/.local/bin` helpers as
 dangerous surfaces whenever you edit deployment behavior.
 
+Run `perltidy -b` on every Perl file you touch before staging it. The
+repo-root `.perltidyrc` supplies the shared style, so any `perltidy`
+invocation inside the tree picks it up. Remove the `.bak` files
+`perltidy` writes before committing.
+
 Use the TAP files as ownership guides:
 
 - `t/00-baseline.t` checks hook presence, executable mode, and
@@ -155,6 +160,7 @@ quality of real helper output.
   deployment checks.
 - `t/lib/PostReceive/TestHarness.pm` — test load-path compatibility
   shim.
+- `.perltidyrc` — shared `perltidy` style applied to every clone.
 
 ## Further reading
 
