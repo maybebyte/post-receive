@@ -4,6 +4,8 @@
 # ── GSD baseline (auto-generated) ──
 .mcp.json
 .bg-shell/
+.agents/
+skills-lock.json
 .DS_Store
 Thumbs.db
 *.swp
