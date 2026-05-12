@@ -1,0 +1,6 @@
+# Developer-only lint baseline for `perlcritic bin lib t`.
+# Keep production runtime dependency-free; Perl::Critic is a local prerequisite.
+severity = 5
+verbose = %f:%l:%c: %m\n
+# Add narrowly justified policy exclusions only after a real lint run proves
+# they are noisy for this characterized hook/test style.

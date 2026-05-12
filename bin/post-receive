@@ -255,6 +255,21 @@ sub clone_website_source_to_tempdir {
 	return clone_repo_to_tempdir($context);
 }
 
+sub fail_if_helper_child_failed {
+	my ( $helper_name, $status ) = @_;
+
+	return if $status == 0;
+
+	my $signal = $status & 127;
+	if ($signal) {
+		my $core_note = ( $status & 128 ) ? ' and dumped core' : '';
+		die "$helper_name terminated by signal $signal$core_note\n";
+	}
+
+	my $exit_code = $status >> 8;
+	die "$helper_name exited with status $exit_code\n";
+}
+
 sub run_website_ssg {
 	my ( $context, $clone_dir ) = @_;
 
@@ -275,10 +290,12 @@ sub run_website_ssg {
 	) or die "Could not open ssg: $!\n";
 
 	waitpid $ssg_pid, 0;
+	my $ssg_status = $?;
 
 	# NOTE: This MUST come after waitpid; otherwise, ssg won't generate
 	# the website.
 	close $ssg_out;
+	fail_if_helper_child_failed( 'ssg6', $ssg_status );
 }
 
 sub write_website_rss_feed {
@@ -309,11 +326,13 @@ sub write_website_rss_feed {
 	while (<$rssg_out>) { print $rss_feed_fh $_; }
 
 	waitpid $rssg_pid, 0;
+	my $rssg_status = $?;
 
 	# Keep the historical wait-then-close order after draining stdout;
 	# changing it has hung rssg before.
 	close $rssg_out;
 	close $rss_feed_fh;
+	fail_if_helper_child_failed( 'rssg', $rssg_status );
 }
 
 sub list_top_level_entries {
@@ -651,7 +670,9 @@ sub copy_shared_stagit_assets {
 	);
 
 	say "Copying $stagit_log to $stagit_index" if $opt_v;
-	copy $stagit_log, $stagit_index;
+	copy $stagit_log, $stagit_index
+		or die
+		"Copying stagit log to index failed: $stagit_log -> $stagit_index: $!\n";
 
 	my @shared_stagit_asset_copy_plan =
 		build_shared_stagit_asset_copy_plan($context);
@@ -660,7 +681,9 @@ sub copy_shared_stagit_assets {
 		my ( $label, $source, $destination ) =
 			@{$copy_step}{qw(label source destination)};
 		say "Copying $label from $source to $destination" if $opt_v;
-		copy $source, $destination;
+		copy $source, $destination
+			or die
+			"Copying shared stagit asset $label failed: $source -> $destination: $!\n";
 	}
 }
 

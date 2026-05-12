@@ -23,34 +23,36 @@ sub new {
 
 	my $workspace_dir = tempdir(
 		'post-receive-harness-XXXXXXXX',
-		TMPDIR  => 1,
+		TMPDIR => 1,
 		CLEANUP => exists $args{cleanup} ? $args{cleanup} : 1,
 	);
 
 	my $home_dir = _ensure_dir( File::Spec->catdir( $workspace_dir, 'home' ) );
-	my $webroot_dir = _ensure_dir( File::Spec->catdir( $workspace_dir, 'webroot' ) );
+	my $webroot_dir =
+		_ensure_dir( File::Spec->catdir( $workspace_dir, 'webroot' ) );
 	my $fake_command_dir =
 		_ensure_dir( File::Spec->catdir( $workspace_dir, 'fake-bin' ) );
 	my $repo_fixture_root =
 		_ensure_dir( File::Spec->catdir( $workspace_dir, 'repos' ) );
-	my $capture_dir = _ensure_dir( File::Spec->catdir( $workspace_dir, 'captures' ) );
+	my $capture_dir =
+		_ensure_dir( File::Spec->catdir( $workspace_dir, 'captures' ) );
 
 	my $self = bless {
-		repo_root              => $repo_root,
-		hook_path              => $hook_path,
-		workspace_dir          => $workspace_dir,
-		home_dir               => $home_dir,
-		webroot_dir            => $webroot_dir,
-		fake_command_dir       => $fake_command_dir,
-		repo_fixture_root      => $repo_fixture_root,
-		capture_dir            => $capture_dir,
-		child_stdout_path      => File::Spec->catfile( $workspace_dir, 'hook.stdout' ),
-		child_stderr_path      => File::Spec->catfile( $workspace_dir, 'hook.stderr' ),
-		fake_stagit_trace_path => File::Spec->catfile(
-			$workspace_dir,
-			'fake-stagit.trace'
-		),
-		path            => _build_path($fake_command_dir),
+		repo_root => $repo_root,
+		hook_path => $hook_path,
+		workspace_dir => $workspace_dir,
+		home_dir => $home_dir,
+		webroot_dir => $webroot_dir,
+		fake_command_dir => $fake_command_dir,
+		repo_fixture_root => $repo_fixture_root,
+		capture_dir => $capture_dir,
+		child_stdout_path =>
+			File::Spec->catfile( $workspace_dir, 'hook.stdout' ),
+		child_stderr_path =>
+			File::Spec->catfile( $workspace_dir, 'hook.stderr' ),
+		fake_stagit_trace_path =>
+			File::Spec->catfile( $workspace_dir, 'fake-stagit.trace' ),
+		path => _build_path($fake_command_dir),
 		command_counter => 0,
 		command_results => [],
 	}, $class;
@@ -80,8 +82,7 @@ sub last_hook_result { return $_[0]->{last_hook_result}; }
 sub describe_workspace {
 	my ($self) = @_;
 
-	return join(
-		"\n",
+	return join( "\n",
 		'workspace_dir: ' . $self->{workspace_dir},
 		'home_dir: ' . $self->{home_dir},
 		'webroot_dir: ' . $self->{webroot_dir},
@@ -109,14 +110,13 @@ sub ensure_dir {
 sub write_file {
 	my ( $self, %args ) = @_;
 
-	my $path = $args{path}
-		// croak "write_file requires a path\n";
+	my $path = $args{path} // croak "write_file requires a path\n";
 	my $absolute_path = _absolute_path( $path, $self->{workspace_dir} );
 
 	_write_file(
-		path    => $absolute_path,
+		path => $absolute_path,
 		content => defined $args{content} ? $args{content} : q{},
-		binary  => $args{binary},
+		binary => $args{binary},
 	);
 
 	return $absolute_path;
@@ -133,10 +133,9 @@ sub executable_on_path {
 
 	for my $dir ( split /:/, $path ) {
 		next unless defined $dir && length $dir;
-		my $candidate = File::Spec->catfile(
-			_absolute_path( $dir, $self->{workspace_dir} ),
-			$name,
-		);
+		my $candidate =
+			File::Spec->catfile( _absolute_path( $dir, $self->{workspace_dir} ),
+				$name, );
 		return $candidate if -f $candidate && -x $candidate;
 	}
 
@@ -151,10 +150,9 @@ sub executable_in_dir {
 	croak "executable_in_dir requires a name\n"
 		unless defined $name && length $name;
 
-	my $candidate = File::Spec->catfile(
-		_absolute_path( $dir, $self->{workspace_dir} ),
-		$name,
-	);
+	my $candidate =
+		File::Spec->catfile( _absolute_path( $dir, $self->{workspace_dir} ),
+			$name, );
 	return $candidate if -f $candidate && -x $candidate;
 
 	return;
@@ -202,40 +200,41 @@ sub file_mode_octal {
 	my $mode = ( stat $absolute_path )[2];
 	return unless defined $mode;
 
-	return sprintf '%04o', $mode & 07777;
+	return sprintf '%04o', $mode & oct('7777');
 }
 
 sub seed_stagit_assets {
 	my ( $self, %args ) = @_;
 
-	my $asset_dir = _ensure_dir( File::Spec->catdir( $self->{webroot_dir}, 'stagit' ) );
+	my $asset_dir =
+		_ensure_dir( File::Spec->catdir( $self->{webroot_dir}, 'stagit' ) );
 	my $style_css_path = File::Spec->catfile( $asset_dir, 'style.css' );
 	my $logo_png_path = File::Spec->catfile( $asset_dir, 'logo.png' );
 	my $favicon_png_path = File::Spec->catfile( $asset_dir, 'favicon.png' );
 	my $png_stub = "\x89PNG\x0D\x0A\x1A\x0AFAKEPNG\n";
 
 	_write_file(
-		path    => $style_css_path,
+		path => $style_css_path,
 		content => $args{style_css}
 			// "/* fake stagit stylesheet */\nbody { background: #fff; }\n",
 	);
 	_write_file(
-		path    => $logo_png_path,
+		path => $logo_png_path,
 		content => $args{logo_png} // $png_stub,
-		binary  => 1,
+		binary => 1,
 	);
 	_write_file(
-		path    => $favicon_png_path,
+		path => $favicon_png_path,
 		content => $args{favicon_png} // $png_stub,
-		binary  => 1,
+		binary => 1,
 	);
 
 	$self->{stagit_asset_dir} = $asset_dir;
 
 	return {
-		asset_dir        => $asset_dir,
-		style_css_path   => $style_css_path,
-		logo_png_path    => $logo_png_path,
+		asset_dir => $asset_dir,
+		style_css_path => $style_css_path,
+		logo_png_path => $logo_png_path,
 		favicon_png_path => $favicon_png_path,
 	};
 }
@@ -243,10 +242,9 @@ sub seed_stagit_assets {
 sub install_fake_stagit {
 	my ( $self, %args ) = @_;
 
-	my $trace_path = _absolute_path(
-		$args{trace_path} // $self->{fake_stagit_trace_path},
-		$self->{workspace_dir}
-	);
+	my $trace_path =
+		_absolute_path( $args{trace_path} // $self->{fake_stagit_trace_path},
+			$self->{workspace_dir} );
 	_ensure_dir( dirname($trace_path) );
 
 	my $fake_stagit_path =
@@ -282,7 +280,7 @@ close \$log_fh
 FAKE_STAGIT
 
 	_write_file(
-		path    => $fake_stagit_path,
+		path => $fake_stagit_path,
 		content => $script,
 	);
 	chmod 0700, $fake_stagit_path
@@ -293,7 +291,7 @@ FAKE_STAGIT
 
 	return {
 		fake_stagit_path => $fake_stagit_path,
-		trace_path       => $trace_path,
+		trace_path => $trace_path,
 	};
 }
 
@@ -309,101 +307,98 @@ sub create_bare_repo {
 	my $work_clone_dir =
 		File::Spec->catdir( $self->{repo_fixture_root}, $work_name . '-work' );
 	my $file_rel = $args{file_rel} // 'README.md';
-	my $file_path = File::Spec->catfile(
-		$work_clone_dir,
-		File::Spec->splitdir($file_rel)
-	);
+	my $file_path =
+		File::Spec->catfile( $work_clone_dir, File::Spec->splitdir($file_rel) );
 
 	$self->_run_checked_command(
-		label   => 'git-init-bare',
-		cwd     => $self->{workspace_dir},
+		label => 'git-init-bare',
+		cwd => $self->{workspace_dir},
 		command => [ qw(git init --bare --), $bare_repo_dir ],
-		env     => $self->_base_env,
+		env => $self->_base_env,
 	);
 
 	$self->_run_checked_command(
-		label   => 'git-clone-bare',
-		cwd     => $self->{workspace_dir},
+		label => 'git-clone-bare',
+		cwd => $self->{workspace_dir},
 		command => [ qw(git clone --), $bare_repo_dir, $work_clone_dir ],
-		env     => $self->_base_env,
+		env => $self->_base_env,
 	);
 
 	_ensure_dir( dirname($file_path) );
 	_write_file(
-		path    => $file_path,
-		content => $args{file_content} // "Fixture content for $repo_name\n",
+		path => $file_path,
+		content => $args{file_content}
+			// "Fixture content for $repo_name\n",
 	);
 
 	$self->_run_checked_command(
-		label   => 'git-config-user-name',
-		cwd     => $self->{workspace_dir},
+		label => 'git-config-user-name',
+		cwd => $self->{workspace_dir},
 		command => [
 			qw(git -C), $work_clone_dir,
 			qw(config user.name),
 			$args{user_name} // 'PostReceive Harness',
 		],
-		env     => $self->_base_env,
+		env => $self->_base_env,
 	);
 
 	$self->_run_checked_command(
-		label   => 'git-config-user-email',
-		cwd     => $self->{workspace_dir},
+		label => 'git-config-user-email',
+		cwd => $self->{workspace_dir},
 		command => [
 			qw(git -C), $work_clone_dir,
 			qw(config user.email),
 			$args{user_email} // 'post-receive-harness@example.test',
 		],
-		env     => $self->_base_env,
+		env => $self->_base_env,
 	);
 
 	$self->_run_checked_command(
-		label   => 'git-add-fixture',
-		cwd     => $self->{workspace_dir},
+		label => 'git-add-fixture',
+		cwd => $self->{workspace_dir},
 		command => [ qw(git -C), $work_clone_dir, qw(add --), $file_rel ],
-		env     => $self->_base_env,
+		env => $self->_base_env,
 	);
 
 	$self->_run_checked_command(
-		label   => 'git-commit-fixture',
-		cwd     => $self->{workspace_dir},
+		label => 'git-commit-fixture',
+		cwd => $self->{workspace_dir},
 		command => [
-			qw(git -C), $work_clone_dir,
-			qw(commit -m),
+			qw(git -C), $work_clone_dir, qw(commit -m),
 			$args{commit_message} // 'Initial fixture commit',
 		],
-		env     => $self->_base_env,
+		env => $self->_base_env,
 	);
 
 	$self->_run_checked_command(
-		label   => 'git-push-fixture',
-		cwd     => $self->{workspace_dir},
+		label => 'git-push-fixture',
+		cwd => $self->{workspace_dir},
 		command => [ qw(git -C), $work_clone_dir, qw(push origin HEAD) ],
-		env     => $self->_base_env,
+		env => $self->_base_env,
 	);
 
 	$self->{bare_repo_dir} = $bare_repo_dir;
 	$self->{work_clone_dir} = $work_clone_dir;
 
 	return {
-		repo_name      => $repo_name,
-		bare_repo_dir  => $bare_repo_dir,
+		repo_name => $repo_name,
+		bare_repo_dir => $bare_repo_dir,
 		work_clone_dir => $work_clone_dir,
-		file_rel       => $file_rel,
-		file_path      => $file_path,
+		file_rel => $file_rel,
+		file_path => $file_path,
 	};
 }
 
 sub append_to_work_clone {
 	my ( $self, %args ) = @_;
 
-	my $work_clone_dir = $args{work_clone_dir}
-		// $self->{work_clone_dir}
-		// croak "append_to_work_clone requires work_clone_dir or a prior create_bare_repo call\n";
-	my $absolute_work_clone_dir = _absolute_path(
-		$work_clone_dir,
-		$self->{workspace_dir}
-	);
-	croak "append_to_work_clone work_clone_dir does not exist: $absolute_work_clone_dir\n"
+	my $work_clone_dir = $args{work_clone_dir} // $self->{work_clone_dir}
+		// croak
+		"append_to_work_clone requires work_clone_dir or a prior create_bare_repo call\n";
+	my $absolute_work_clone_dir =
+		_absolute_path( $work_clone_dir, $self->{workspace_dir} );
+	croak
+		"append_to_work_clone work_clone_dir does not exist: $absolute_work_clone_dir\n"
 		unless -d $absolute_work_clone_dir;
 
 	my $files = $args{files};
@@ -412,7 +407,8 @@ sub append_to_work_clone {
 
 	my @git_add;
 	for my $file ( @{$files} ) {
-		croak "append_to_work_clone expects each file entry as a hash reference\n"
+		croak
+			"append_to_work_clone expects each file entry as a hash reference\n"
 			unless ref $file eq 'HASH';
 
 		my $file_rel = $file->{file_rel};
@@ -422,17 +418,16 @@ sub append_to_work_clone {
 			if File::Spec->file_name_is_absolute($file_rel);
 
 		my @file_parts = File::Spec->splitdir($file_rel);
-		croak "append_to_work_clone file_rel must stay within the work clone: $file_rel\n"
+		croak
+			"append_to_work_clone file_rel must stay within the work clone: $file_rel\n"
 			if grep { defined $_ && $_ eq File::Spec->updir } @file_parts;
 
-		my $file_path = File::Spec->catfile(
-			$absolute_work_clone_dir,
-			@file_parts,
-		);
+		my $file_path =
+			File::Spec->catfile( $absolute_work_clone_dir, @file_parts, );
 		$self->write_file(
-			path    => $file_path,
+			path => $file_path,
 			content => defined $file->{content} ? $file->{content} : q{},
-			binary  => $file->{binary},
+			binary => $file->{binary},
 		);
 		push @git_add, $file_rel;
 	}
@@ -441,39 +436,38 @@ sub append_to_work_clone {
 	my $env = $self->_base_env;
 
 	$self->_run_checked_command(
-		label   => 'git-add-appended-fixture',
-		cwd     => $absolute_work_clone_dir,
+		label => 'git-add-appended-fixture',
+		cwd => $absolute_work_clone_dir,
 		command => [ qw(git add --), @git_add ],
-		env     => $env,
+		env => $env,
 	);
 	$self->_run_checked_command(
-		label   => 'git-commit-appended-fixture',
-		cwd     => $absolute_work_clone_dir,
+		label => 'git-commit-appended-fixture',
+		cwd => $absolute_work_clone_dir,
 		command => [ qw(git commit -m), $commit_message ],
-		env     => $env,
+		env => $env,
 	);
 	$self->_run_checked_command(
-		label   => 'git-push-appended-fixture',
-		cwd     => $absolute_work_clone_dir,
-		command => [ qw(git push origin HEAD) ],
-		env     => $env,
+		label => 'git-push-appended-fixture',
+		cwd => $absolute_work_clone_dir,
+		command => [qw(git push origin HEAD)],
+		env => $env,
 	);
 
 	$self->{work_clone_dir} = $absolute_work_clone_dir;
 
 	return {
-		work_clone_dir  => $absolute_work_clone_dir,
-		files           => [ @git_add ],
-		commit_message  => $commit_message,
+		work_clone_dir => $absolute_work_clone_dir,
+		files => [@git_add],
+		commit_message => $commit_message,
 	};
 }
 
 sub run_post_receive {
 	my ( $self, %args ) = @_;
 
-	my $cwd = $args{cwd}
-		// $self->{bare_repo_dir}
-		// croak "run_post_receive requires an explicit cwd or a prior create_bare_repo call\n";
+	my $cwd = $args{cwd} // $self->{bare_repo_dir} // croak
+		"run_post_receive requires an explicit cwd or a prior create_bare_repo call\n";
 
 	my $argv = $args{argv} // [];
 	croak "run_post_receive expects argv as an array reference\n"
@@ -483,14 +477,12 @@ sub run_post_receive {
 	croak "run_post_receive expects env as a hash reference\n"
 		unless ref $env_arg eq 'HASH';
 
-	my $stdout_path = _absolute_path(
-		$args{stdout_path} // $self->{child_stdout_path},
-		$self->{workspace_dir}
-	);
-	my $stderr_path = _absolute_path(
-		$args{stderr_path} // $self->{child_stderr_path},
-		$self->{workspace_dir}
-	);
+	my $stdout_path =
+		_absolute_path( $args{stdout_path} // $self->{child_stdout_path},
+			$self->{workspace_dir} );
+	my $stderr_path =
+		_absolute_path( $args{stderr_path} // $self->{child_stderr_path},
+			$self->{workspace_dir} );
 	$self->{child_stdout_path} = $stdout_path;
 	$self->{child_stderr_path} = $stderr_path;
 
@@ -502,22 +494,23 @@ sub run_post_receive {
 
 	my %extra_env = %{$env_arg};
 	if (
-		( !exists $args{with_webroot_override} || $args{with_webroot_override} )
+		(
+			!exists $args{with_webroot_override}
+			|| $args{with_webroot_override}
+		)
 		&& !exists $extra_env{POST_RECEIVE_WEB_SERVER_DIR}
-	) {
+		)
+	{
 		$extra_env{POST_RECEIVE_WEB_SERVER_DIR} = $self->{webroot_dir};
 	}
 
-	my %env = (
-		%{ $self->_base_env },
-		%extra_env,
-	);
+	my %env = ( %{ $self->_base_env }, %extra_env, );
 
 	my $result = $self->_run_command(
-		label       => 'post-receive',
-		cwd         => $cwd,
-		command     => [ $self->{hook_path}, @{$argv} ],
-		env         => \%env,
+		label => 'post-receive',
+		cwd => $cwd,
+		command => [ $self->{hook_path}, @{$argv} ],
+		env => \%env,
 		stdout_path => $stdout_path,
 		stderr_path => $stderr_path,
 	);
@@ -556,17 +549,14 @@ sub describe_run {
 	);
 
 	if ( defined $self->{fake_stagit_trace_path} ) {
-		push @lines,
-			"fake_stagit_trace_path: $self->{fake_stagit_trace_path}";
+		push @lines, "fake_stagit_trace_path: $self->{fake_stagit_trace_path}";
 		if ( -e $self->{fake_stagit_trace_path} ) {
 			push @lines,
 				"fake_stagit_trace:",
 				$self->read_file( $self->{fake_stagit_trace_path} );
 		}
 		else {
-			push @lines,
-				"fake_stagit_trace:",
-				'(missing)';
+			push @lines, "fake_stagit_trace:", '(missing)';
 		}
 	}
 
@@ -576,9 +566,7 @@ sub describe_run {
 sub read_file {
 	my ( $self, $path ) = @_;
 
-	return _slurp_file(
-		_absolute_path( $path, $self->{workspace_dir} )
-	);
+	return _slurp_file( _absolute_path( $path, $self->{workspace_dir} ) );
 }
 
 sub _base_env {
@@ -609,10 +597,8 @@ sub _run_command {
 		unless ref $command eq 'ARRAY' && @{$command};
 
 	my $label = $args{label} // $command->[0];
-	my $cwd = _absolute_path(
-		$args{cwd} // $self->{workspace_dir},
-		$self->{workspace_dir}
-	);
+	my $cwd = _absolute_path( $args{cwd} // $self->{workspace_dir},
+		$self->{workspace_dir} );
 
 	croak "Command cwd does not exist: $cwd\n"
 		unless -d $cwd;
@@ -621,7 +607,8 @@ sub _run_command {
 	croak "_run_command expects env as a hash reference\n"
 		unless ref $env eq 'HASH';
 
-	my $captures = $args{stdout_path} || $args{stderr_path}
+	my $captures =
+		$args{stdout_path} || $args{stderr_path}
 		? {
 			stdout => _absolute_path(
 				$args{stdout_path} // $self->{child_stdout_path},
@@ -661,7 +648,9 @@ sub _run_command {
 
 		exec { $command->[0] } @{$command}
 			or do {
-				print STDERR "Could not exec " . _format_command($command) . ": $!\\n";
+				print STDERR "Could not exec "
+				. _format_command($command)
+				. ": $!\\n";
 				exit 127;
 			};
 	}
@@ -670,19 +659,19 @@ sub _run_command {
 	my $status = $?;
 
 	my $result = {
-		label          => $label,
-		command        => [ @{$command} ],
+		label => $label,
+		command => [ @{$command} ],
 		command_string => _format_command($command),
-		cwd            => $cwd,
-		stdout_path    => $captures->{stdout},
-		stderr_path    => $captures->{stderr},
-		status         => $status,
-		exit_code      => $status >> 8,
-		signal         => $status & 127,
-		dumped_core    => ( $status & 128 ) ? 1 : 0,
-		stdout         => _read_file_if_exists( $captures->{stdout} ),
-		stderr         => _read_file_if_exists( $captures->{stderr} ),
-		env            => { %{$env} },
+		cwd => $cwd,
+		stdout_path => $captures->{stdout},
+		stderr_path => $captures->{stderr},
+		status => $status,
+		exit_code => $status >> 8,
+		signal => $status & 127,
+		dumped_core => ( $status & 128 ) ? 1 : 0,
+		stdout => _read_file_if_exists( $captures->{stdout} ),
+		stderr => _read_file_if_exists( $captures->{stderr} ),
+		env => { %{$env} },
 	};
 
 	push @{ $self->{command_results} }, $result;
@@ -703,14 +692,10 @@ sub _next_capture_paths {
 	my $prefix = sprintf '%02d-%s', $self->{command_counter}, $safe_label;
 
 	return {
-		stdout => File::Spec->catfile(
-			$self->{capture_dir},
-			"$prefix.stdout"
-		),
-		stderr => File::Spec->catfile(
-			$self->{capture_dir},
-			"$prefix.stderr"
-		),
+		stdout =>
+			File::Spec->catfile( $self->{capture_dir}, "$prefix.stdout" ),
+		stderr =>
+			File::Spec->catfile( $self->{capture_dir}, "$prefix.stderr" ),
 	};
 }
 
@@ -718,13 +703,10 @@ sub _resolve_repo_root {
 	my $module_path = abs_path(__FILE__)
 		or croak "Could not resolve module path for " . __FILE__ . "\n";
 
-	my $repo_root = abs_path(
-		File::Spec->catdir(
-			dirname($module_path),
-			File::Spec->updir,
-			File::Spec->updir,
-		)
-	) or croak "Could not resolve repository root relative to $module_path\n";
+	my $repo_root = abs_path( File::Spec->catdir(
+		dirname($module_path), File::Spec->updir, File::Spec->updir,
+	) )
+		or croak "Could not resolve repository root relative to $module_path\n";
 
 	return $repo_root;
 }
@@ -751,10 +733,7 @@ sub _absolute_path {
 sub _build_path {
 	my ($fake_command_dir) = @_;
 
-	return join q{:},
-		grep { defined && length }
-		$fake_command_dir,
-		$ENV{PATH};
+	return join q{:}, grep { defined && length } $fake_command_dir, $ENV{PATH};
 }
 
 sub _perl_single_quote {
@@ -769,8 +748,7 @@ sub _perl_single_quote {
 sub _write_file {
 	my (%args) = @_;
 
-	my $path = $args{path}
-		// croak "_write_file requires a path\n";
+	my $path = $args{path} // croak "_write_file requires a path\n";
 	my $content = defined $args{content} ? $args{content} : q{};
 
 	_ensure_dir( dirname($path) );
@@ -831,8 +809,7 @@ sub _shell_quote {
 sub _result_failure_message {
 	my ( $label, $result ) = @_;
 
-	return join(
-		"\n",
+	return join( "\n",
 		"$label failed",
 		"command: $result->{command_string}",
 		"cwd: $result->{cwd}",

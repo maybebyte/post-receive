@@ -64,11 +64,20 @@ If `POST_RECEIVE_WEB_SERVER_DIR` is unset, the hook uses
 it uses `/etc/sysadm`. `HOME` controls both helper lookup and helper
 replacement under `.local/bin`.
 
-Local verification also needs `prove`. The TAP suite supplies temporary
-workspaces, an isolated `HOME`, temporary webroot and sysadm targets,
-fake helper commands where needed, bare repository fixtures, and
-captured stdout and stderr. Those fakes make local tests safe; they are
-not production substitutes.
+Local developer verification also needs:
+
+- `make` for the repository quality-gate targets;
+- `prove` for the TAP suite;
+- `perltidy` for formatting and non-mutating formatting assertions; and
+- `Perl::Critic`, available as `perlcritic`, for the lint gate.
+
+These verification tools are developer-only prerequisites for local
+checks. They are not production hook runtime dependencies.
+
+The TAP suite supplies temporary workspaces, an isolated `HOME`,
+temporary webroot and sysadm targets, fake helper commands where needed,
+bare repository fixtures, and captured stdout and stderr. Those fakes
+make local tests safe; they are not production substitutes.
 
 ## Install or deploy
 
@@ -92,42 +101,62 @@ account whose `.local/bin` helpers should be used or updated.
 
 ## Verify locally
 
-Check the hook syntax with:
+From the repository root, run the supported local quality gate with:
+
+```sh
+make check
+```
+
+`make check` runs the hook syntax check, the configured Perl::Critic
+lint gate, non-mutating perltidy formatting assertions, the `.bak`
+backup-file guard, and the full TAP proof.
+
+When a gate fails, narrow it with the direct command for that layer:
 
 ```sh
 perl -c bin/post-receive
-```
-
-Run the supported repository-root test command with:
-
-```sh
+make lint
+perlcritic bin lib t
+make tidy-check
+make no-backups
 prove -lr t
 ```
 
-For focused diagnostics, run a single TAP file from the repository root,
-such as:
+For focused TAP diagnostics, run a single TAP file from the repository
+root, such as:
 
 ```sh
 prove -v t/03-website-md.t
 prove -v t/04-deployment-branches.t
 ```
 
-Passing local tests proves contained behavior through temporary fixtures
-and fake helpers. It does not prove live OpenBSD deployment, real
-`stagit` page output, real `ssg6` or `rssg` output quality, production
-ownership or permissions, web-server integration, service integration,
-or safety of manual runs against production paths.
+Passing local `make check` or TAP evidence proves contained behavior
+through temporary fixtures and fake helpers. It does not prove live
+OpenBSD deployment, real `stagit`, `ssg6`, or `rssg` output quality,
+production ownership or permissions, web-server integration, service
+integration, or production path safety.
 
 ## Make safe changes
 
-Change one behavior at a time and rerun `prove -lr t` after each change.
+Change one behavior at a time. For behavior changes, use
+red-green-refactor: add or update the failing behavior-focused TAP
+expectation, make the smallest hook change, then refactor only after the
+focused proof is green. For behavior-preserving refactors, tie the edit
+to existing green TAP coverage.
+
+While iterating, run the focused TAP file that owns the behavior, for
+example `prove -v t/03-website-md.t`. Before claiming completion, run
+`make check` so syntax, lint, formatting assertions, backup detection,
+and the full TAP suite all pass through the same quality gate.
+
 Treat the web root, the sysadm target, and `$HOME/.local/bin` helpers as
 dangerous surfaces whenever you edit deployment behavior.
 
 Run `perltidy -b` on every Perl file you touch before staging it. The
 repo-root `.perltidyrc` supplies the shared style, so any `perltidy`
 invocation inside the tree picks it up. Remove the `.bak` files
-`perltidy` writes before committing.
+`perltidy` writes before committing, or use `make no-backups` to catch
+leftover backup artifacts.
 
 Use the TAP files as ownership guides:
 
@@ -140,14 +169,23 @@ Use the TAP files as ownership guides:
   gzip rules.
 - `t/04-deployment-branches.t` checks `sysadm.git`, `dotfiles.git`,
   helper replacement, and append validation.
+- `t/05-dependency-checks.t` checks fail-fast helper dependency errors
+  for `website_md.git` before destructive side effects.
 
-The proof boundary is intentionally local: TAP tests exercise the real
-hook under contained paths, but they do not validate host ownership,
-production permissions, web-server behavior, service behavior, or the
-quality of real helper output.
+The proof boundary is intentionally local: `make check` and TAP tests
+exercise the real hook under contained paths and fake helpers. They do
+not prove live OpenBSD deployment, real `stagit`, `ssg6`, or `rssg`
+output quality, production ownership or permissions, web-server
+integration, service integration, or production path safety.
 
 ## Project layout
 
+- `Makefile` — local quality gate and focused targets for syntax,
+  Perl::Critic lint, formatting assertions, backup detection, and TAP
+  tests.
+- `.perlcriticrc` — developer-only Perl::Critic baseline for
+  `perlcritic bin lib t`.
+- `.perltidyrc` — shared `perltidy` style applied to every clone.
 - `bin/post-receive` — executable hook entrypoint.
 - `lib/PostReceive/TestHarness.pm` — containment harness used by local
   tests.
@@ -158,14 +196,11 @@ quality of real helper output.
 - `t/03-website-md.t` — `website_md.git` website generation checks.
 - `t/04-deployment-branches.t` — `sysadm.git` and `dotfiles.git`
   deployment checks.
+- `t/05-dependency-checks.t` — `website_md.git` helper dependency
+  fail-fast checks.
 - `t/lib/PostReceive/TestHarness.pm` — test load-path compatibility
   shim.
-- `.perltidyrc` — shared `perltidy` style applied to every clone.
 
 ## Further reading
 
 Agent-specific repository guidance lives in [AGENTS.md](AGENTS.md).
-
-A Git `post-receive` hook runs after refs are updated in a bare
-repository; see the official Git hooks documentation for general hook
-mechanics: https://git-scm.com/docs/githooks
