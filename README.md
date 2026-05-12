@@ -154,6 +154,8 @@ quality of real helper output.
 
 ## Further reading
 
+Agent-specific repository guidance lives in [AGENTS.md](AGENTS.md).
+
 A Git `post-receive` hook runs after refs are updated in a bare
 repository; see the official Git hooks documentation for general hook
 mechanics: https://git-scm.com/docs/githooks
