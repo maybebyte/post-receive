@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 
+use English qw(-no_match_vars);
 use File::Basename qw(dirname);
 use File::Spec;
 use File::Spec::Functions qw(catdir catfile);
@@ -29,8 +30,9 @@ sub install_executable_stub {
 	my $script = "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nexit 0;\n";
 
 	$harness->write_file( path => $path, content => $script );
-	chmod 0700, $path
-		or die "Could not chmod 0700 $path: $!\n";
+	my $executable_mode = oct q{700};
+	chmod $executable_mode, $path
+		or die "Could not chmod $executable_mode $path: $OS_ERROR\n";
 
 	return $path;
 }

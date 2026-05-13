@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 
+use English qw(-no_match_vars);
 use File::Basename qw(dirname);
 use File::Spec;
 use File::Spec::Functions qw(catdir catfile rootdir);
@@ -14,13 +15,13 @@ sub setup_or_stop {
 	my ( $label, $code, $harness ) = @_;
 
 	my $value = eval { $code->() };
-	if ( !$@ ) {
+	if ( !$EVAL_ERROR ) {
 		pass($label);
 		return $value;
 	}
 
 	fail($label);
-	diag($@);
+	diag($EVAL_ERROR);
 	diag( $harness->describe_workspace );
 	done_testing();
 	exit 1;
@@ -48,6 +49,19 @@ sub unlike_with_diag {
 	my ( $got, $pattern, $label, $diag ) = @_;
 	unlike( $got, $pattern, $label ) or diag($diag);
 	return;
+}
+
+sub all_checked_files_exist {
+	my (@file_checks) = @_;
+
+	for my $file_check (@file_checks) {
+		my ($path) = @{$file_check};
+		if ( !-f $path ) {
+			return;
+		}
+	}
+
+	return 1;
 }
 
 my $harness = PostReceive::TestHarness->new;
@@ -121,7 +135,7 @@ subtest
 			$workspace_diag,
 		);
 
-		my $binary_payload = "\x00helper\xFF\n";
+		my $binary_payload = pack 'H*', q{0068656c706572ff0a};
 		my $binary_path = $harness->write_file(
 			path => catfile(qw(helper-check nested parent payload.bin)),
 			content => $binary_payload,
@@ -136,8 +150,9 @@ subtest
 			path => catfile(qw(helper-check bin helper-tool)),
 			content => "#!/bin/sh\nexit 0\n",
 		);
-		chmod 0700, $helper_tool_path
-		or die "Could not chmod 0700 $helper_tool_path: $!\n";
+		my $helper_tool_mode = oct q{700};
+		chmod $helper_tool_mode, $helper_tool_path
+		or die "Could not chmod 0700 $helper_tool_path: $OS_ERROR\n";
 
 		is_with_diag(
 			$harness->executable_on_path('stagit'),
@@ -176,17 +191,16 @@ subtest
 			$workspace_diag,
 		);
 
-		my $trace_text = join( "\n",
-			'cwd=/tmp/helper-trace', 'argv[0]=--',
-			'argv[1]=repos/example.git', 'helper=fake-stagit',
-			'trace.version=1', 'malformed line without equals',
-			'argv[bad]=ignored', q{},
-		);
+		my $trace_text = join "\n",
+		'cwd=/tmp/helper-trace', 'argv[0]=--',
+		'argv[1]=repos/example.git', 'helper=fake-stagit',
+		'trace.version=1', 'malformed line without equals',
+		'argv[bad]=ignored', q{};
 		my $parsed_trace = $harness->parse_trace($trace_text);
 		is_deeply(
 			$parsed_trace,
 			{
-				argv => [ '--', 'repos/example.git' ],
+				argv => [ q{--}, 'repos/example.git' ],
 				cwd => '/tmp/helper-trace',
 				helper => 'fake-stagit',
 				'trace.version' => '1',
@@ -282,14 +296,21 @@ unlike_with_diag(
 	$run_diag,
 );
 
-ok_with_diag( -f $owner_path, 'owner metadata file exists', $run_diag );
-ok_with_diag( -f $description_path,
-	'description metadata file exists', $run_diag );
-ok_with_diag( -f $url_path, 'url metadata file exists', $run_diag );
+my @metadata_file_checks = (
+	[ $owner_path, 'owner metadata file exists' ],
+	[ $description_path, 'description metadata file exists' ],
+	[ $url_path, 'url metadata file exists' ],
+);
+
+for my $metadata_file_check (@metadata_file_checks) {
+	my ( $path, $label ) = @{$metadata_file_check};
+	ok_with_diag( -f $path, $label, $run_diag );
+}
 
 SKIP: {
-	skip 'metadata file missing', 3
-		unless -f $owner_path && -f $description_path && -f $url_path;
+	if ( !all_checked_files_exist(@metadata_file_checks) ) {
+		skip 'metadata file missing', scalar @metadata_file_checks;
+	}
 	my $owner = $harness->read_file($owner_path);
 	my $description = $harness->read_file($description_path);
 	my $url = $harness->read_file($url_path);
@@ -308,19 +329,29 @@ SKIP: {
 ok_with_diag( -d $stagit_dir,
 	'common repository output directory exists under the temp webroot',
 	$run_diag );
-ok_with_diag( -f $trace_path, 'fake stagit trace was recorded', $run_diag );
-ok_with_diag( -f $log_path, 'fake stagit generated log.html', $run_diag );
-ok_with_diag( -f $index_path, 'hook copied log.html to index.html', $run_diag );
-ok_with_diag( -f $css_path, 'hook copied shared style.css into stagit output',
-	$run_diag );
-ok_with_diag( -f $logo_path,
-	'hook copied shared logo.png into stagit output', $run_diag );
-ok_with_diag( -f $favicon_path,
-	'hook copied shared favicon.png into stagit output', $run_diag );
+
+my @trace_file_checks = ( [ $trace_path, 'fake stagit trace was recorded' ], );
+my @html_file_checks = (
+	[ $log_path, 'fake stagit generated log.html' ],
+	[ $index_path, 'hook copied log.html to index.html' ],
+);
+my @asset_file_checks = (
+	[ $css_path, 'hook copied shared style.css into stagit output' ],
+	[ $logo_path, 'hook copied shared logo.png into stagit output' ],
+	[ $favicon_path, 'hook copied shared favicon.png into stagit output' ],
+);
+
+for my $output_file_check ( @trace_file_checks, @html_file_checks,
+	@asset_file_checks, )
+{
+	my ( $path, $label ) = @{$output_file_check};
+	ok_with_diag( -f $path, $label, $run_diag );
+}
 
 SKIP: {
-	skip 'log.html or index.html missing', 2
-		unless -f $log_path && -f $index_path;
+	if ( !all_checked_files_exist(@html_file_checks) ) {
+		skip 'log.html or index.html missing', scalar @html_file_checks;
+	}
 	my $log_html = $harness->read_file($log_path);
 	my $index_html = $harness->read_file($index_path);
 	is_with_diag( $index_html, $log_html,
@@ -333,8 +364,9 @@ SKIP: {
 }
 
 SKIP: {
-	skip 'copied assets missing', 3
-		unless -f $css_path && -f $logo_path && -f $favicon_path;
+	if ( !all_checked_files_exist(@asset_file_checks) ) {
+		skip 'copied assets missing', scalar @asset_file_checks;
+	}
 	is_with_diag(
 		$harness->read_file($css_path),
 		$harness->read_file( $assets->{style_css_path} ),
@@ -355,16 +387,22 @@ SKIP: {
 	);
 }
 
+my @trace_assertion_labels = (
+	'fake stagit recorded the stagit output directory as cwd',
+	'fake stagit recorded the expected argv',
+);
+
 SKIP: {
-	skip 'fake stagit trace missing', 2 unless -f $trace_path;
+	if ( !all_checked_files_exist(@trace_file_checks) ) {
+		skip 'fake stagit trace missing', scalar @trace_assertion_labels;
+	}
 	my $trace = $harness->parse_trace_file($trace_path);
 	is_with_diag( $trace->{cwd}, $stagit_dir,
-		'fake stagit recorded the stagit output directory as cwd',
-		$run_diag );
+		$trace_assertion_labels[0], $run_diag );
 	is_deeply(
 		$trace->{argv},
-		[ '--', $repo->{bare_repo_dir} ],
-		'fake stagit recorded the expected argv'
+		[ q{--}, $repo->{bare_repo_dir} ],
+		$trace_assertion_labels[1]
 	) or diag($run_diag);
 }
 

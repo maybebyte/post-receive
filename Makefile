@@ -9,7 +9,7 @@ require-perlcritic:
 	@command -v perlcritic >/dev/null 2>&1 || { echo "Missing developer tool: perlcritic (Perl::Critic). Install Perl::Critic before running make lint/check." >&2; exit 127; }
 
 lint: require-perlcritic
-	perlcritic bin lib t
+	perlcritic --profile .perlcriticrc bin lib t
 
 require-perltidy:
 	@command -v perltidy >/dev/null 2>&1 || { echo "Missing developer tool: perltidy. Install perltidy before running make tidy-check/check." >&2; exit 127; }

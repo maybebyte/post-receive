@@ -3,10 +3,10 @@
 ## Commands
 
 - Run `make check` from the repository root as the default local quality gate. It routes through `syntax`, `lint`, `tidy-check`, `no-backups`, and `test`.
-- `make check` covers `perl -c bin/post-receive`, `perlcritic bin lib t`, non-mutating perltidy assertions, backup-artifact detection, and `prove -lr t`.
+- `make check` covers `perl -c bin/post-receive`, `perlcritic --profile .perlcriticrc bin lib t`, non-mutating perltidy assertions, backup-artifact detection, and `prove -lr t`.
 - Use targeted diagnostics when a gate fails:
   - `perl -c bin/post-receive` checks production-hook syntax directly.
-  - `make lint` runs the configured lint gate; `perlcritic bin lib t` shows direct Perl::Critic output.
+  - `make lint` runs the configured strict Perl::Critic profile; `perlcritic --profile .perlcriticrc bin lib t` shows direct Perl::Critic output.
   - `make tidy-check` reruns only the non-mutating formatting assertions.
   - `make no-backups` reruns only the `.bak` artifact guard.
   - `prove -v t/03-website-md.t` or another single TAP file narrows test failures before rerunning `prove -lr t` or `make check`.
@@ -20,7 +20,7 @@
 - `README.md` is the human overview for behavior, requirements, deployment warnings, verification commands, proof limits, and layout.
 - `AGENTS.md` is the canonical portable agent guidance surface; `CLAUDE.md` must remain exactly the `@AGENTS.md` include shim.
 - `Makefile` defines the local quality gate and focused targets for syntax, lint, formatting assertions, backup detection, and TAP tests.
-- `.perlcriticrc` is the developer-only Perl::Critic baseline for `perlcritic bin lib t`.
+- `.perlcriticrc` is the strict developer-only Perl::Critic profile used by `make lint` and `make check`.
 - `.perltidyrc` is the shared perltidy style. Tracked at the repo root so every clone formats the same way.
 - `bin/post-receive` is the self-contained production Git hook. Keep production behavior in this single-file hook; do not extract production modules.
 - `lib/PostReceive/TestHarness.pm` is test-only support for contained TAP runs, fake commands, temporary repositories, and captured diagnostics.

@@ -1,6 +1,16 @@
-# Developer-only lint baseline for `perlcritic bin lib t`.
+# M007 strict developer-only lint profile for `make lint` / `make check`.
 # Keep production runtime dependency-free; Perl::Critic is a local prerequisite.
-severity = 5
-verbose = %f:%l:%c: %m\n
-# Add narrowly justified policy exclusions only after a real lint run proves
-# they are noisy for this characterized hook/test style.
+severity = 1
+verbose = %f:%l:%c: %m [%p]\n
+# Disabled policy blocks must stay narrow, repository-specific, and
+# evidence-backed by an actual strict lint finding; do not add broad exclusions.
+# This repository lints executable scripts, TAP files, a self-contained
+# production hook, and test-only modules rather than versioned CPAN
+# distribution modules.
+[-Modules::RequireVersionVar]
+
+# Forced /msx flags would obscure simple path/literal assertions and can
+# change literal-space semantics in substitutions and matching code.
+[-RegularExpressions::RequireDotMatchAnything]
+[-RegularExpressions::RequireExtendedFormatting]
+[-RegularExpressions::RequireLineBoundaryMatching]

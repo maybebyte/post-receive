@@ -5,6 +5,7 @@ use warnings;
 
 use Carp qw(croak);
 use Cwd qw(abs_path);
+use English qw(-no_match_vars);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
@@ -14,12 +15,14 @@ sub new {
 	my ( $class, %args ) = @_;
 
 	my $repo_root = $args{repo_root} // _resolve_repo_root();
-	croak "Resolved repository root does not exist: $repo_root\n"
-		unless -d $repo_root;
+	if ( !-d $repo_root ) {
+		croak "Resolved repository root does not exist: $repo_root\n";
+	}
 
 	my $hook_path = File::Spec->catfile( $repo_root, 'bin', 'post-receive' );
-	croak "Resolved hook path does not exist: $hook_path\n"
-		unless -f $hook_path;
+	if ( !-f $hook_path ) {
+		croak "Resolved hook path does not exist: $hook_path\n";
+	}
 
 	my $workspace_dir = tempdir(
 		'post-receive-harness-XXXXXXXX',
@@ -60,36 +63,106 @@ sub new {
 	return $self;
 }
 
-sub repo_root { return $_[0]->{repo_root}; }
-sub hook_path { return $_[0]->{hook_path}; }
-sub workspace_dir { return $_[0]->{workspace_dir}; }
-sub home_dir { return $_[0]->{home_dir}; }
-sub webroot_dir { return $_[0]->{webroot_dir}; }
-sub fake_command_dir { return $_[0]->{fake_command_dir}; }
-sub repo_fixture_root { return $_[0]->{repo_fixture_root}; }
-sub capture_dir { return $_[0]->{capture_dir}; }
-sub child_stdout_path { return $_[0]->{child_stdout_path}; }
-sub child_stderr_path { return $_[0]->{child_stderr_path}; }
-sub fake_stagit_trace_path { return $_[0]->{fake_stagit_trace_path}; }
-sub fake_stagit_path { return $_[0]->{fake_stagit_path}; }
-sub stagit_asset_dir { return $_[0]->{stagit_asset_dir}; }
-sub bare_repo_dir { return $_[0]->{bare_repo_dir}; }
-sub work_clone_dir { return $_[0]->{work_clone_dir}; }
-sub path { return $_[0]->{path}; }
-sub command_results { return $_[0]->{command_results}; }
-sub last_hook_result { return $_[0]->{last_hook_result}; }
+sub repo_root {
+	my ($self) = @_;
+	return $self->{repo_root};
+}
+
+sub hook_path {
+	my ($self) = @_;
+	return $self->{hook_path};
+}
+
+sub workspace_dir {
+	my ($self) = @_;
+	return $self->{workspace_dir};
+}
+
+sub home_dir {
+	my ($self) = @_;
+	return $self->{home_dir};
+}
+
+sub webroot_dir {
+	my ($self) = @_;
+	return $self->{webroot_dir};
+}
+
+sub fake_command_dir {
+	my ($self) = @_;
+	return $self->{fake_command_dir};
+}
+
+sub repo_fixture_root {
+	my ($self) = @_;
+	return $self->{repo_fixture_root};
+}
+
+sub capture_dir {
+	my ($self) = @_;
+	return $self->{capture_dir};
+}
+
+sub child_stdout_path {
+	my ($self) = @_;
+	return $self->{child_stdout_path};
+}
+
+sub child_stderr_path {
+	my ($self) = @_;
+	return $self->{child_stderr_path};
+}
+
+sub fake_stagit_trace_path {
+	my ($self) = @_;
+	return $self->{fake_stagit_trace_path};
+}
+
+sub fake_stagit_path {
+	my ($self) = @_;
+	return $self->{fake_stagit_path};
+}
+
+sub stagit_asset_dir {
+	my ($self) = @_;
+	return $self->{stagit_asset_dir};
+}
+
+sub bare_repo_dir {
+	my ($self) = @_;
+	return $self->{bare_repo_dir};
+}
+
+sub work_clone_dir {
+	my ($self) = @_;
+	return $self->{work_clone_dir};
+}
+
+sub path {
+	my ($self) = @_;
+	return $self->{path};
+}
+
+sub command_results {
+	my ($self) = @_;
+	return $self->{command_results};
+}
+
+sub last_hook_result {
+	my ($self) = @_;
+	return $self->{last_hook_result};
+}
 
 sub describe_workspace {
 	my ($self) = @_;
 
-	return join( "\n",
+	return join "\n",
 		'workspace_dir: ' . $self->{workspace_dir},
 		'home_dir: ' . $self->{home_dir},
 		'webroot_dir: ' . $self->{webroot_dir},
 		'fake_command_dir: ' . $self->{fake_command_dir},
 		'repo_fixture_root: ' . $self->{repo_fixture_root},
-		'PATH: ' . $self->{path},
-	);
+		'PATH: ' . $self->{path};
 }
 
 sub workspace_diag {
@@ -100,8 +173,9 @@ sub workspace_diag {
 sub ensure_dir {
 	my ( $self, $path ) = @_;
 
-	croak "ensure_dir requires a path\n"
-		unless defined $path && length $path;
+	if ( !defined $path || !length $path ) {
+		croak "ensure_dir requires a path\n";
+	}
 
 	my $absolute_path = _absolute_path( $path, $self->{workspace_dir} );
 	return _ensure_dir($absolute_path);
@@ -125,18 +199,25 @@ sub write_file {
 sub executable_on_path {
 	my ( $self, $name, %args ) = @_;
 
-	croak "executable_on_path requires a name\n"
-		unless defined $name && length $name;
+	if ( !defined $name || !length $name ) {
+		croak "executable_on_path requires a name\n";
+	}
 
 	my $path = exists $args{path} ? $args{path} : $self->{path};
-	return unless defined $path && length $path;
+	if ( !defined $path || !length $path ) {
+		return;
+	}
 
 	for my $dir ( split /:/, $path ) {
-		next unless defined $dir && length $dir;
+		if ( !defined $dir || !length $dir ) {
+			next;
+		}
 		my $candidate =
 			File::Spec->catfile( _absolute_path( $dir, $self->{workspace_dir} ),
 				$name, );
-		return $candidate if -f $candidate && -x $candidate;
+		if ( -f $candidate && -x $candidate ) {
+			return $candidate;
+		}
 	}
 
 	return;
@@ -145,15 +226,19 @@ sub executable_on_path {
 sub executable_in_dir {
 	my ( $self, $dir, $name ) = @_;
 
-	croak "executable_in_dir requires a directory\n"
-		unless defined $dir && length $dir;
-	croak "executable_in_dir requires a name\n"
-		unless defined $name && length $name;
+	if ( !defined $dir || !length $dir ) {
+		croak "executable_in_dir requires a directory\n";
+	}
+	if ( !defined $name || !length $name ) {
+		croak "executable_in_dir requires a name\n";
+	}
 
 	my $candidate =
 		File::Spec->catfile( _absolute_path( $dir, $self->{workspace_dir} ),
 			$name, );
-	return $candidate if -f $candidate && -x $candidate;
+	if ( -f $candidate && -x $candidate ) {
+		return $candidate;
+	}
 
 	return;
 }
@@ -161,8 +246,9 @@ sub executable_in_dir {
 sub parse_trace {
 	my ( $self, $trace_text ) = @_;
 
-	croak "parse_trace requires trace text\n"
-		unless defined $trace_text;
+	if ( !defined $trace_text ) {
+		croak "parse_trace requires trace text\n";
+	}
 
 	my %trace = ( argv => [] );
 	for my $line ( split /\n/, $trace_text ) {
@@ -170,7 +256,7 @@ sub parse_trace {
 			$trace{argv}->[$1] = $2;
 			next;
 		}
-		if ( $line =~ /^([A-Za-z0-9_.-]+)=(.*)\z/ ) {
+		if ( $line =~ /^([[:alnum:]_.-]+)=(.*)\z/ ) {
 			$trace{$1} = $2;
 		}
 	}
@@ -181,8 +267,9 @@ sub parse_trace {
 sub parse_trace_file {
 	my ( $self, $path ) = @_;
 
-	croak "parse_trace_file requires a path\n"
-		unless defined $path && length $path;
+	if ( !defined $path || !length $path ) {
+		croak "parse_trace_file requires a path\n";
+	}
 
 	my $absolute_path = _absolute_path( $path, $self->{workspace_dir} );
 	return $self->parse_trace( _slurp_file($absolute_path) );
@@ -191,16 +278,22 @@ sub parse_trace_file {
 sub file_mode_octal {
 	my ( $self, $path ) = @_;
 
-	croak "file_mode_octal requires a path\n"
-		unless defined $path && length $path;
+	if ( !defined $path || !length $path ) {
+		croak "file_mode_octal requires a path\n";
+	}
 
 	my $absolute_path = _absolute_path( $path, $self->{workspace_dir} );
-	return unless -e $absolute_path;
+	if ( !-e $absolute_path ) {
+		return;
+	}
 
 	my $mode = ( stat $absolute_path )[2];
-	return unless defined $mode;
+	if ( !defined $mode ) {
+		return;
+	}
 
-	return sprintf '%04o', $mode & oct('7777');
+	my $full_mode_mask = oct q{7777};
+	return sprintf '%04o', $mode & $full_mode_mask;
 }
 
 sub seed_stagit_assets {
@@ -211,7 +304,7 @@ sub seed_stagit_assets {
 	my $style_css_path = File::Spec->catfile( $asset_dir, 'style.css' );
 	my $logo_png_path = File::Spec->catfile( $asset_dir, 'logo.png' );
 	my $favicon_png_path = File::Spec->catfile( $asset_dir, 'favicon.png' );
-	my $png_stub = "\x89PNG\x0D\x0A\x1A\x0AFAKEPNG\n";
+	my $png_stub = pack 'H*', q{89504e470d0a1a0a46414b45504e470a};
 
 	_write_file(
 		path => $style_css_path,
@@ -252,39 +345,42 @@ sub install_fake_stagit {
 
 	my $trace_literal = _perl_single_quote($trace_path);
 
-	my $script = <<"FAKE_STAGIT";
+	my $script = <<'FAKE_STAGIT';
 #!/usr/bin/env perl
 use strict;
 use warnings;
 use Cwd qw(getcwd);
 
-my \$trace_path = $trace_literal;
+my $trace_path = __POST_RECEIVE_TRACE_PATH__;
 
-open my \$trace_fh, '>', \$trace_path
-	or die "Could not open \$trace_path for writing: \$!\\n";
-print {\$trace_fh} "cwd=", getcwd(), "\\n";
-for my \$index ( 0 .. \$#ARGV ) {
-	print {\$trace_fh} "argv[\$index]=", \$ARGV[\$index], "\\n";
+open my $trace_fh, '>', $trace_path
+	or die "Could not open $trace_path for writing: $!\n";
+print {$trace_fh} "cwd=", getcwd(), "\n";
+for my $index ( 0 .. $#ARGV ) {
+	print {$trace_fh} "argv[$index]=", $ARGV[$index], "\n";
 }
-close \$trace_fh
-	or die "Could not close \$trace_path: \$!\\n";
+close $trace_fh
+	or die "Could not close $trace_path: $!\n";
 
-open my \$log_fh, '>', 'log.html'
-	or die "Could not open log.html for writing: \$!\\n";
-my \$repo = \@ARGV ? \$ARGV[-1] : '';
-print {\$log_fh} "<!doctype html>\\n";
-print {\$log_fh} "<title>fake stagit</title>\\n";
-print {\$log_fh} "<p>\$repo</p>\\n";
-close \$log_fh
-	or die "Could not close log.html: \$!\\n";
+open my $log_fh, '>', 'log.html'
+	or die "Could not open log.html for writing: $!\n";
+my $repo = @ARGV ? $ARGV[-1] : '';
+print {$log_fh} "<!doctype html>\n";
+print {$log_fh} "<title>fake stagit</title>\n";
+print {$log_fh} "<p>$repo</p>\n";
+close $log_fh
+	or die "Could not close log.html: $!\n";
 FAKE_STAGIT
+
+	$script =~ s/__POST_RECEIVE_TRACE_PATH__/$trace_literal/;
 
 	_write_file(
 		path => $fake_stagit_path,
 		content => $script,
 	);
-	chmod 0700, $fake_stagit_path
-		or croak "Could not chmod 0700 $fake_stagit_path: $!\n";
+	my $owner_executable_mode = oct q{700};
+	chmod $owner_executable_mode, $fake_stagit_path
+		or croak "Could not chmod 0700 $fake_stagit_path: $OS_ERROR\n";
 
 	$self->{fake_stagit_path} = $fake_stagit_path;
 	$self->{fake_stagit_trace_path} = $trace_path;
@@ -300,7 +396,7 @@ sub create_bare_repo {
 
 	my $repo_name = $args{repo_name} // 'learning_perl_exercises.git';
 	my $work_name = $repo_name;
-	$work_name =~ s/\.git\z//;
+	$work_name =~ s/[.]git\z//;
 
 	my $bare_repo_dir =
 		File::Spec->catdir( $self->{repo_fixture_root}, $repo_name );
@@ -392,35 +488,46 @@ sub create_bare_repo {
 sub append_to_work_clone {
 	my ( $self, %args ) = @_;
 
-	my $work_clone_dir = $args{work_clone_dir} // $self->{work_clone_dir}
-		// croak
-		"append_to_work_clone requires work_clone_dir or a prior create_bare_repo call\n";
+	my $work_clone_dir = $args{work_clone_dir} // $self->{work_clone_dir};
+	if ( !defined $work_clone_dir ) {
+		croak
+			"append_to_work_clone requires work_clone_dir or a prior create_bare_repo call\n";
+	}
 	my $absolute_work_clone_dir =
 		_absolute_path( $work_clone_dir, $self->{workspace_dir} );
-	croak
-		"append_to_work_clone work_clone_dir does not exist: $absolute_work_clone_dir\n"
-		unless -d $absolute_work_clone_dir;
+	if ( !-d $absolute_work_clone_dir ) {
+		croak
+			"append_to_work_clone work_clone_dir does not exist: $absolute_work_clone_dir\n";
+	}
 
 	my $files = $args{files};
-	croak "append_to_work_clone requires a non-empty files array reference\n"
-		unless ref $files eq 'ARRAY' && @{$files};
+	if ( ref $files ne 'ARRAY' || !@{$files} ) {
+		croak
+			"append_to_work_clone requires a non-empty files array reference\n";
+	}
 
 	my @git_add;
 	for my $file ( @{$files} ) {
-		croak
-			"append_to_work_clone expects each file entry as a hash reference\n"
-			unless ref $file eq 'HASH';
+		if ( ref $file ne 'HASH' ) {
+			croak
+				"append_to_work_clone expects each file entry as a hash reference\n";
+		}
 
 		my $file_rel = $file->{file_rel};
-		croak "append_to_work_clone file entry is missing file_rel\n"
-			unless defined $file_rel && length $file_rel;
-		croak "append_to_work_clone file_rel must be relative: $file_rel\n"
-			if File::Spec->file_name_is_absolute($file_rel);
+		if ( !defined $file_rel || !length $file_rel ) {
+			croak "append_to_work_clone file entry is missing file_rel\n";
+		}
+		if ( File::Spec->file_name_is_absolute($file_rel) ) {
+			croak "append_to_work_clone file_rel must be relative: $file_rel\n";
+		}
 
 		my @file_parts = File::Spec->splitdir($file_rel);
-		croak
-			"append_to_work_clone file_rel must stay within the work clone: $file_rel\n"
-			if grep { defined $_ && $_ eq File::Spec->updir } @file_parts;
+		for my $file_part (@file_parts) {
+			if ( defined $file_part && $file_part eq File::Spec->updir ) {
+				croak
+					"append_to_work_clone file_rel must stay within the work clone: $file_rel\n";
+			}
+		}
 
 		my $file_path =
 			File::Spec->catfile( $absolute_work_clone_dir, @file_parts, );
@@ -470,12 +577,14 @@ sub run_post_receive {
 		"run_post_receive requires an explicit cwd or a prior create_bare_repo call\n";
 
 	my $argv = $args{argv} // [];
-	croak "run_post_receive expects argv as an array reference\n"
-		unless ref $argv eq 'ARRAY';
+	if ( ref $argv ne 'ARRAY' ) {
+		croak "run_post_receive expects argv as an array reference\n";
+	}
 
 	my $env_arg = $args{env} // {};
-	croak "run_post_receive expects env as a hash reference\n"
-		unless ref $env_arg eq 'HASH';
+	if ( ref $env_arg ne 'HASH' ) {
+		croak "run_post_receive expects env as a hash reference\n";
+	}
 
 	my $stdout_path =
 		_absolute_path( $args{stdout_path} // $self->{child_stdout_path},
@@ -486,11 +595,17 @@ sub run_post_receive {
 	$self->{child_stdout_path} = $stdout_path;
 	$self->{child_stderr_path} = $stderr_path;
 
-	unlink $stdout_path if -e $stdout_path;
-	unlink $stderr_path if -e $stderr_path;
-	unlink $self->{fake_stagit_trace_path}
-		if defined $self->{fake_stagit_trace_path}
-		&& -e $self->{fake_stagit_trace_path};
+	if ( -e $stdout_path ) {
+		unlink $stdout_path;
+	}
+	if ( -e $stderr_path ) {
+		unlink $stderr_path;
+	}
+	if ( defined $self->{fake_stagit_trace_path}
+		&& -e $self->{fake_stagit_trace_path} )
+	{
+		unlink $self->{fake_stagit_trace_path};
+	}
 
 	my %extra_env = %{$env_arg};
 	if (
@@ -523,8 +638,9 @@ sub run_post_receive {
 sub describe_run {
 	my ( $self, $result ) = @_;
 
-	croak "describe_run requires a result hash reference\n"
-		unless ref $result eq 'HASH';
+	if ( ref $result ne 'HASH' ) {
+		croak "describe_run requires a result hash reference\n";
+	}
 
 	my @lines = (
 		"workspace_dir: $self->{workspace_dir}",
@@ -532,8 +648,8 @@ sub describe_run {
 		"webroot_dir: $self->{webroot_dir}",
 		"fake_command_dir: $self->{fake_command_dir}",
 		"repo_fixture_root: $self->{repo_fixture_root}",
-		"bare_repo_dir: " . ( $self->{bare_repo_dir} // '(unset)' ),
-		"work_clone_dir: " . ( $self->{work_clone_dir} // '(unset)' ),
+		'bare_repo_dir: ' . ( $self->{bare_repo_dir} // '(unset)' ),
+		'work_clone_dir: ' . ( $self->{work_clone_dir} // '(unset)' ),
 		"hook_path: $self->{hook_path}",
 		"command: $result->{command_string}",
 		"cwd: $result->{cwd}",
@@ -542,9 +658,9 @@ sub describe_run {
 		"signal: $result->{signal}",
 		"stdout_path: $result->{stdout_path}",
 		"stderr_path: $result->{stderr_path}",
-		"stdout:",
+		'stdout:',
 		length $result->{stdout} ? $result->{stdout} : '(empty)',
-		"stderr:",
+		'stderr:',
 		length $result->{stderr} ? $result->{stderr} : '(empty)',
 	);
 
@@ -552,11 +668,11 @@ sub describe_run {
 		push @lines, "fake_stagit_trace_path: $self->{fake_stagit_trace_path}";
 		if ( -e $self->{fake_stagit_trace_path} ) {
 			push @lines,
-				"fake_stagit_trace:",
+				'fake_stagit_trace:',
 				$self->read_file( $self->{fake_stagit_trace_path} );
 		}
 		else {
-			push @lines, "fake_stagit_trace:", '(missing)';
+			push @lines, 'fake_stagit_trace:', '(missing)';
 		}
 	}
 
@@ -584,7 +700,9 @@ sub _run_checked_command {
 	my $label = $args{label} // 'command';
 	my $result = $self->_run_command(%args);
 
-	return $result if $result->{status} == 0;
+	if ( $result->{status} == 0 ) {
+		return $result;
+	}
 
 	croak _result_failure_message( $label, $result );
 }
@@ -593,19 +711,22 @@ sub _run_command {
 	my ( $self, %args ) = @_;
 
 	my $command = $args{command};
-	croak "_run_command requires a non-empty command array reference\n"
-		unless ref $command eq 'ARRAY' && @{$command};
+	if ( ref $command ne 'ARRAY' || !@{$command} ) {
+		croak "_run_command requires a non-empty command array reference\n";
+	}
 
 	my $label = $args{label} // $command->[0];
 	my $cwd = _absolute_path( $args{cwd} // $self->{workspace_dir},
 		$self->{workspace_dir} );
 
-	croak "Command cwd does not exist: $cwd\n"
-		unless -d $cwd;
+	if ( !-d $cwd ) {
+		croak "Command cwd does not exist: $cwd\n";
+	}
 
 	my $env = $args{env} // {};
-	croak "_run_command expects env as a hash reference\n"
-		unless ref $env eq 'HASH';
+	if ( ref $env ne 'HASH' ) {
+		croak "_run_command expects env as a hash reference\n";
+	}
 
 	my $captures =
 		$args{stdout_path} || $args{stderr_path}
@@ -624,39 +745,59 @@ sub _run_command {
 	_ensure_dir( dirname( $captures->{stdout} ) );
 	_ensure_dir( dirname( $captures->{stderr} ) );
 
-	unlink $captures->{stdout} if -e $captures->{stdout};
-	unlink $captures->{stderr} if -e $captures->{stderr};
+	if ( -e $captures->{stdout} ) {
+		unlink $captures->{stdout};
+	}
+	if ( -e $captures->{stderr} ) {
+		unlink $captures->{stderr};
+	}
 
-	my $pid = fork();
-	croak "Could not fork for " . _format_command($command) . ": $!\n"
-		unless defined $pid;
+	my $child_setup_failure_exit = oct q{176};
+	my $child_exec_failure_exit = oct q{177};
+	my $exit_code_shift = oct q{10};
+	my $signal_mask = oct q{177};
+	my $core_dump_mask = oct q{200};
+
+	my $pid = fork;
+	if ( !defined $pid ) {
+		croak 'Could not fork for '
+			. _format_command($command)
+			. ": $OS_ERROR\n";
+	}
 
 	if ( $pid == 0 ) {
-		open STDIN, '<', File::Spec->devnull()
-			or exit 126;
+		open STDIN, '<', File::Spec->devnull
+			or exit $child_setup_failure_exit;
 		open STDOUT, '>', $captures->{stdout}
-			or exit 126;
+			or exit $child_setup_failure_exit;
 		open STDERR, '>', $captures->{stderr}
-			or exit 126;
+			or exit $child_setup_failure_exit;
 
 		chdir $cwd or do {
-			print STDERR "Could not chdir to $cwd: $!\\n";
-			exit 126;
+			print {*STDERR} "Could not chdir to $cwd: $OS_ERROR\n"
+				or exit $child_setup_failure_exit;
+			exit $child_setup_failure_exit;
 		};
 
 		local %ENV = ( %ENV, %{$env} );
 
 		exec { $command->[0] } @{$command}
 			or do {
-				print STDERR "Could not exec "
+				print {*STDERR} 'Could not exec '
 				. _format_command($command)
-				. ": $!\\n";
-				exit 127;
+				. ": $OS_ERROR\n"
+				or exit $child_exec_failure_exit;
+				exit $child_exec_failure_exit;
 			};
 	}
 
-	waitpid $pid, 0;
-	my $status = $?;
+	my $waited_pid = waitpid $pid, 0;
+	if ( $waited_pid != $pid ) {
+		croak 'Could not waitpid for '
+			. _format_command($command)
+			. ": $OS_ERROR\n";
+	}
+	my $status = $CHILD_ERROR;
 
 	my $result = {
 		label => $label,
@@ -666,9 +807,9 @@ sub _run_command {
 		stdout_path => $captures->{stdout},
 		stderr_path => $captures->{stderr},
 		status => $status,
-		exit_code => $status >> 8,
-		signal => $status & 127,
-		dumped_core => ( $status & 128 ) ? 1 : 0,
+		exit_code => $status >> $exit_code_shift,
+		signal => $status & $signal_mask,
+		dumped_core => ( $status & $core_dump_mask ) ? 1 : 0,
 		stdout => _read_file_if_exists( $captures->{stdout} ),
 		stderr => _read_file_if_exists( $captures->{stderr} ),
 		env => { %{$env} },
@@ -684,7 +825,7 @@ sub _next_capture_paths {
 
 	$self->{command_counter}++;
 	my $safe_label = $label // 'command';
-	$safe_label =~ s/[^A-Za-z0-9._-]+/-/g;
+	$safe_label =~ s/[^[:alnum:]._-]+/-/g;
 	$safe_label =~ s/\A-+//;
 	$safe_label =~ s/-+\z//;
 	$safe_label ||= 'command';
@@ -701,7 +842,7 @@ sub _next_capture_paths {
 
 sub _resolve_repo_root {
 	my $module_path = abs_path(__FILE__)
-		or croak "Could not resolve module path for " . __FILE__ . "\n";
+		or croak 'Could not resolve module path for ' . __FILE__ . "\n";
 
 	my $repo_root = abs_path( File::Spec->catdir(
 		dirname($module_path), File::Spec->updir, File::Spec->updir,
@@ -714,10 +855,12 @@ sub _resolve_repo_root {
 sub _ensure_dir {
 	my ($path) = @_;
 
-	return $path if -d $path;
+	if ( -d $path ) {
+		return $path;
+	}
 
 	make_path($path)
-		or croak "Could not create directory $path: $!\n";
+		or croak "Could not create directory $path: $OS_ERROR\n";
 
 	return $path;
 }
@@ -725,7 +868,9 @@ sub _ensure_dir {
 sub _absolute_path {
 	my ( $path, $base ) = @_;
 
-	return $path if File::Spec->file_name_is_absolute($path);
+	if ( File::Spec->file_name_is_absolute($path) ) {
+		return $path;
+	}
 
 	return File::Spec->rel2abs( $path, $base );
 }
@@ -754,26 +899,28 @@ sub _write_file {
 	_ensure_dir( dirname($path) );
 
 	open my $fh, '>', $path
-		or croak "Could not open $path for writing: $!\n";
+		or croak "Could not open $path for writing: $OS_ERROR\n";
 	if ( $args{binary} ) {
-		binmode $fh or croak "Could not enable binmode for $path: $!\n";
+		binmode $fh or croak "Could not enable binmode for $path: $OS_ERROR\n";
 	}
 	print {$fh} $content
-		or croak "Could not write to $path: $!\n";
+		or croak "Could not write to $path: $OS_ERROR\n";
 	close $fh
-		or croak "Could not close $path: $!\n";
+		or croak "Could not close $path: $OS_ERROR\n";
+
+	return;
 }
 
 sub _slurp_file {
 	my ($path) = @_;
 
 	open my $fh, '<', $path
-		or croak "Could not open $path for reading: $!\n";
-	binmode $fh or croak "Could not enable binmode for $path: $!\n";
-	local $/;
+		or croak "Could not open $path for reading: $OS_ERROR\n";
+	binmode $fh or croak "Could not enable binmode for $path: $OS_ERROR\n";
+	local $INPUT_RECORD_SEPARATOR = undef;
 	my $content = <$fh>;
 	close $fh
-		or croak "Could not close $path: $!\n";
+		or croak "Could not close $path: $OS_ERROR\n";
 
 	return defined $content ? $content : q{};
 }
@@ -781,7 +928,9 @@ sub _slurp_file {
 sub _read_file_if_exists {
 	my ($path) = @_;
 
-	return q{} unless defined $path && -e $path;
+	if ( !defined $path || !-e $path ) {
+		return q{};
+	}
 
 	return _slurp_file($path);
 }
@@ -795,10 +944,14 @@ sub _format_command {
 sub _shell_quote {
 	my ($text) = @_;
 
-	$text = q{} unless defined $text;
-	return "''" if $text eq q{};
+	if ( !defined $text ) {
+		$text = q{};
+	}
+	if ( $text eq q{} ) {
+		return q{''};
+	}
 
-	if ( $text =~ /\A[-A-Za-z0-9_.,:\/=]+\z/ ) {
+	if ( $text =~ m{\A[-[:alnum:]_.,:/=]+\z} ) {
 		return $text;
 	}
 
@@ -818,9 +971,9 @@ sub _result_failure_message {
 		"signal: $result->{signal}",
 		"stdout_path: $result->{stdout_path}",
 		"stderr_path: $result->{stderr_path}",
-		"stdout:",
+		'stdout:',
 		length $result->{stdout} ? $result->{stdout} : '(empty)',
-		"stderr:",
+		'stderr:',
 		length $result->{stderr} ? $result->{stderr} : '(empty)',
 	) . "\n";
 }

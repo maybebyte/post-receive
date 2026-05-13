@@ -107,16 +107,16 @@ From the repository root, run the supported local quality gate with:
 make check
 ```
 
-`make check` runs the hook syntax check, the configured Perl::Critic
-lint gate, non-mutating perltidy formatting assertions, the `.bak`
-backup-file guard, and the full TAP proof.
+`make check` runs the hook syntax check, the strict Perl::Critic
+lint gate configured by `.perlcriticrc`, non-mutating perltidy formatting
+assertions, the `.bak` backup-file guard, and the full TAP proof.
 
 When a gate fails, narrow it with the direct command for that layer:
 
 ```sh
 perl -c bin/post-receive
 make lint
-perlcritic bin lib t
+perlcritic --profile .perlcriticrc bin lib t
 make tidy-check
 make no-backups
 prove -lr t
@@ -183,8 +183,8 @@ integration, service integration, or production path safety.
 - `Makefile` — local quality gate and focused targets for syntax,
   Perl::Critic lint, formatting assertions, backup detection, and TAP
   tests.
-- `.perlcriticrc` — developer-only Perl::Critic baseline for
-  `perlcritic bin lib t`.
+- `.perlcriticrc` — strict developer-only Perl::Critic profile used by
+  `make lint` and `make check`.
 - `.perltidyrc` — shared `perltidy` style applied to every clone.
 - `bin/post-receive` — executable hook entrypoint.
 - `lib/PostReceive/TestHarness.pm` — containment harness used by local

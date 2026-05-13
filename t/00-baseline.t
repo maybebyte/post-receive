@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 
+use English qw(-no_match_vars);
 use File::Basename qw(dirname);
 use File::Spec;
 use Test::More;
@@ -15,7 +16,7 @@ ok( -e $hook, 'hook exists' );
 ok( -f $hook, 'hook is a regular file' );
 ok( -x $hook, 'hook is executable' );
 
-my $syntax_status = system {$^X} $^X, '-c', $hook;
+my $syntax_status = system {$EXECUTABLE_NAME} $EXECUTABLE_NAME, '-c', $hook;
 is( $syntax_status, 0, 'perl -c succeeds' );
 
 done_testing();
